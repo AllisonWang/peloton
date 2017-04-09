@@ -6,7 +6,8 @@
 
 #include <murmur3/MurmurHash3.h>
 
-#include "optimizer/stats/distinct_value_counter.h"
+#include "common/macros.h"
+#include "common/logger.h"
 
 namespace peloton {
 namespace optimizer {
@@ -24,7 +25,7 @@ namespace optimizer {
  * We also wanna try the improved version HyperLogLog++ but it's complicated...
  * Paper: https://research.google.com/pubs/pub40671.html
  */
-class HyperLogLog : public DistinctValueCounter {
+class HyperLogLog {
  public:
   using Uint_t = uint32_t;
 
@@ -57,28 +58,18 @@ class HyperLogLog : public DistinctValueCounter {
    * b in [4, 16]
    */
   HyperLogLog(uint8_t b = 4)
-    : DistinctValueCounter{},
-      b{b},
+    : b{b},
       m(1 << b),
       M(m, 0),
       alphaMM{AlphaM(m) * m * m} {}
 
-  // TODO: Handle NULL value properly!
-  void AddValue(type::Value &value) {
-    if (value.GetTypeId() == type::Type::TypeId::INVALID) {
-      return;
-    }
-    Add(value.Hash());
-  }
-
-  void Add(Uint_t hash) {
-    Uint_t j = hash >> (HASH_SIZE - b);
-    // Get number of of leading zero + 1 (the position of the leftmost 1-bit)
-    uint8_t r = CLZ((hash << b), HASH_SIZE - b) + 1;
-    if (r > M[j]) {
-      M[j] = r;
-    }
-  }
+  /*
+   * Peloton type adapter.
+   */
+	void Add(type::Value& value) {
+		const char* raw_value = value.ToString().c_str();
+    Add(raw_value);
+	}
 
   // MurmurHash does not work properly...
   void Add(const char* item, uint32_t count = 1) {
