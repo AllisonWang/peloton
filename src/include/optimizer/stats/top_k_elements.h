@@ -3,6 +3,7 @@
 #include "type/value.h"
 #include "type/type.h"
 #include "type/types.h"
+#include "type/value_factory.h"
 #include "expression/abstract_expression.h"
 #include "common/macros.h"
 #include "common/logger.h"
