@@ -66,7 +66,7 @@ class ColumnStatsCatalog : public AbstractCatalog {
   //===--------------------------------------------------------------------===//
   // Read-only Related API
   //===--------------------------------------------------------------------===//
-  std::unique_ptr<optimizer::ColumnStats> GetColumnStats(
+  std::unique_ptr<std::vector<type::Value>> GetColumnStats(
       oid_t database_id, oid_t table_id, oid_t column_id,
       concurrency::Transaction *txn);
   // TODO: add more if needed
@@ -82,6 +82,15 @@ class ColumnStatsCatalog : public AbstractCatalog {
     MOST_COMMON_FREQS = 7,
     HISTOGRAM_BOUNDS = 8,
     // Add new columns here in creation order
+  };
+
+  enum ColumnStatsOffset {
+    NUM_ROW_OFF = 0,
+    CARDINALITY_OFF = 1,
+    FRAC_NULL_OFF = 2,
+    COMMON_VALS_OFF = 3,
+    COMMON_FREQS_OFF = 4,
+    HIST_BOUNDS_OFF = 5,
   };
 
  private:

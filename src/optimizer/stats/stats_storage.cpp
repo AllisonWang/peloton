@@ -12,10 +12,9 @@
 
 #include "optimizer/stats/stats_storage.h"
 #include "catalog/catalog.h"
+#include "catalog/column_stats_catalog.h"
 #include "type/value.h"
 #include "storage/data_table.h"
-#include "storage/table_factory.h"
-#include "catalog/column_stats_catalog.h"
 
 namespace peloton {
 namespace optimizer {
@@ -33,19 +32,6 @@ StatsStorage *StatsStorage::GetInstance(void) {
 StatsStorage::StatsStorage() {
   pool_.reset(new type::EphemeralPool());
   CreateStatsCatalog();
-  CreateSamplesDatabase();
-}
-
-/**
- * ~StatsStorage - Deconstructor of StatsStorage.
- * It deletes(drops) the 'samples_db' from catalog in case of memory leak.
- * TODO: Remove this when catalog frees the databases memory in its
- * deconstructor
- * in the future.
- */
-StatsStorage::~StatsStorage() {
-  catalog::Catalog::GetInstance()->DropDatabaseWithName(SAMPLES_DB_NAME,
-                                                        nullptr);
 }
 
 /**
@@ -59,20 +45,14 @@ void StatsStorage::CreateStatsCatalog() {
 }
 
 /**
- * AddOrUpdateTableStats - Add or update all column stats of a table.
+ * InsertOrUpdateTableStats - Add or update all column stats of a table.
  * This function iterates all column stats in the table stats and insert column
  * stats tuples into the 'stats' table in the catalog database.
- * This function only add table stats to the catalog for now.
- * TODO: Implement stats UPDATE if the column stats already exists.
  */
-void StatsStorage::AddOrUpdateTableStats(storage::DataTable *table,
-                                         TableStats *table_stats) {
-  // All tuples are inserted in a single txn
-  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
-  auto txn = txn_manager.BeginTransaction();
-
-  auto column_stats_catalog = catalog::ColumnStatsCatalog::GetInstance(nullptr);
-
+void StatsStorage::InsertOrUpdateTableStats(storage::DataTable *table,
+                                         TableStats *table_stats,
+                                         concurrency::Transaction *txn) {
+  // Add or update column stats sequentially.
   oid_t database_id = table->GetDatabaseOid();
   oid_t table_id = table->GetOid();
   size_t num_row = table_stats->GetActiveTupleCount();
@@ -80,7 +60,6 @@ void StatsStorage::AddOrUpdateTableStats(storage::DataTable *table,
   oid_t column_count = table_stats->GetColumnCount();
   for (oid_t column_id = 0; column_id < column_count; column_id++) {
     ColumnStats *column_stats = table_stats->GetColumnStats(column_id);
-    (void)column_stats;
     double cardinality = column_stats->GetCardinality();
     double frac_null = column_stats->GetFracNull();
     // Currently, we only store the most common value and its frequency in stats
@@ -100,84 +79,52 @@ void StatsStorage::AddOrUpdateTableStats(storage::DataTable *table,
       histogram_bounds_str = ConvertDoubleArrayToString(histogram_bounds);
     }
 
-    column_stats_catalog->InsertColumnStats(
-        database_id, table_id, column_id, num_row, cardinality, frac_null,
-        most_common_val_str, most_common_freq, histogram_bounds_str,
-        pool_.get(), txn);
+    LOG_DEBUG(
+        "InsertOrUpdateColumnStats: num_row: %lu, cardinality: %lf, frac_null: "
+        "%lf",
+        num_row, cardinality, frac_null);
+    InsertOrUpdateColumnStats(database_id, table_id, column_id, num_row,
+                           cardinality, frac_null, most_common_val_str,
+                           most_common_freq, histogram_bounds_str, txn);
   }
-
-  txn_manager.CommitTransaction(txn);
 }
 
-/**
- * GetColumnStatsTuple - Generate a column stats tuple.
- */
-std::unique_ptr<storage::Tuple> StatsStorage::GetColumnStatsTuple(
-    const catalog::Schema *schema, oid_t database_id, oid_t table_id,
-    oid_t column_id, int num_row, double cardinality, double frac_null,
-    std::vector<ValueFrequencyPair> &most_common_val_freqs,
-    std::vector<double> &histogram_bounds) {
-  std::unique_ptr<storage::Tuple> tuple(new storage::Tuple(schema, true));
-  auto val_db_id = type::ValueFactory::GetIntegerValue(database_id);
-  auto val_table_id = type::ValueFactory::GetIntegerValue(table_id);
-  auto val_column_id = type::ValueFactory::GetIntegerValue(column_id);
-  auto val_num_row = type::ValueFactory::GetIntegerValue(num_row);
-  auto val_cardinality = type::ValueFactory::GetDecimalValue(cardinality);
-  auto val_frac_null = type::ValueFactory::GetDecimalValue(frac_null);
+void StatsStorage::InsertOrUpdateColumnStats(oid_t database_id, oid_t table_id,
+                                          oid_t column_id, int num_row,
+                                          double cardinality, double frac_null,
+                                          std::string most_common_vals,
+                                          double most_common_freqs,
+                                          std::string histogram_bounds,
+                                          concurrency::Transaction *txn) {
+  auto column_stats_catalog = catalog::ColumnStatsCatalog::GetInstance(nullptr);
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
 
-  // Currently, only store the most common value and its frequency because
-  // Peloton doesn't suppport ARRAY type now.
-  // TODO: store the array of most common values and freqs when Peloton supports
-  // ARRAY type.
-  type::Value val_common_val, val_common_freq;
-  if (most_common_val_freqs.size() > 0) {
-    val_common_val = type::ValueFactory::GetVarcharValue(
-        most_common_val_freqs[0].first.ToString());
-    val_common_freq =
-        type::ValueFactory::GetDecimalValue(most_common_val_freqs[0].second);
-  } else {
-    val_common_val =
-        type::ValueFactory::GetNullValueByType(type::Type::VARCHAR);
-    val_common_freq =
-        type::ValueFactory::GetNullValueByType(type::Type::DECIMAL);
+  bool single_statement_txn = false;
+  if (txn == nullptr) {
+    single_statement_txn = true;
+    txn = txn_manager.BeginTransaction();
   }
-  // Since Peloton doesn't support ARRAY type, we temporarily convert the
-  // double array to a string by concatening them with ",". Then we can store
-  // the histogram bounds array as VARCHAR in the datatable.
-  type::Value val_hist_bounds;
-  if (histogram_bounds.size() > 0) {
-    val_hist_bounds = type::ValueFactory::GetVarcharValue(
-        ConvertDoubleArrayToString(histogram_bounds));
-  } else {
-    val_hist_bounds =
-        type::ValueFactory::GetNullValueByType(type::Type::VARCHAR);
-  }
+  column_stats_catalog->DeleteColumnStats(database_id, table_id, column_id,
+                                          txn);
+  column_stats_catalog->InsertColumnStats(
+      database_id, table_id, column_id, num_row, cardinality, frac_null,
+      most_common_vals, most_common_freqs, histogram_bounds, pool_.get(), txn);
 
-  tuple->SetValue(0, val_db_id, nullptr);
-  tuple->SetValue(1, val_table_id, nullptr);
-  tuple->SetValue(2, val_column_id, nullptr);
-  tuple->SetValue(3, val_num_row, nullptr);
-  tuple->SetValue(4, val_cardinality, nullptr);
-  tuple->SetValue(5, val_frac_null, nullptr);
-  tuple->SetValue(6, val_common_val, pool_.get());
-  tuple->SetValue(7, val_common_freq, nullptr);
-  tuple->SetValue(8, val_hist_bounds, pool_.get());
-  return std::move(tuple);
+  if (single_statement_txn) {
+    txn_manager.CommitTransaction(txn);
+  }
 }
 
 /**
  * GetColumnStatsByID - Query the 'stats' table to get the column stats by IDs.
- * TODO: Implement this function.
  */
-std::unique_ptr<ColumnStats> StatsStorage::GetColumnStatsByID(oid_t database_id,
-                                                              oid_t table_id,
-                                                              oid_t column_id) {
+std::unique_ptr<std::vector<type::Value>> StatsStorage::GetColumnStatsByID(
+    oid_t database_id, oid_t table_id, oid_t column_id) {
   auto column_stats_catalog = catalog::ColumnStatsCatalog::GetInstance(nullptr);
   auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
   auto txn = txn_manager.BeginTransaction();
-  std::unique_ptr<ColumnStats> column_stats =
-      column_stats_catalog->GetColumnStats(database_id, table_id, column_id,
-                                           txn);
+  auto column_stats = column_stats_catalog->GetColumnStats(
+      database_id, table_id, column_id, txn);
   txn_manager.CommitTransaction(txn);
   return std::move(column_stats);
 }
@@ -187,7 +134,7 @@ std::unique_ptr<ColumnStats> StatsStorage::GetColumnStatsByID(oid_t database_id,
  * datatables
  * to collect their stats and store them in the 'stats' table.
  */
-void StatsStorage::CollectStatsForAllTables() {
+ResultType StatsStorage::AnalyzeStatsForAllTables() {
   auto catalog = catalog::Catalog::GetInstance();
 
   oid_t database_count = catalog->GetDatabaseCount();
@@ -199,61 +146,31 @@ void StatsStorage::CollectStatsForAllTables() {
       auto table = database->GetTable(table_offset);
       std::unique_ptr<TableStats> table_stats(new TableStats(table));
       table_stats->CollectColumnStats();
-      AddOrUpdateTableStats(table, table_stats.get());
+      InsertOrUpdateTableStats(table, table_stats.get());
     }
   }
+  return ResultType::SUCCESS;
 }
 
-/**
- * CreateSamplesDatabase - Create a database for storing samples tables.
- */
-void StatsStorage::CreateSamplesDatabase() {
-  catalog::Catalog::GetInstance()->CreateDatabase(SAMPLES_DB_NAME, nullptr);
+ResultType StatsStorage::AnalyzeStatsForTable(storage::DataTable *table,
+                                              concurrency::Transaction *txn) {
+  if (txn == nullptr) {
+    LOG_TRACE("Do not have transaction to analyze the table stats: %s",
+              table_name.c_str());
+    return ResultType::FAILURE;
+  }
+  std::unique_ptr<TableStats> table_stats(new TableStats(table));
+  table_stats->CollectColumnStats();
+  InsertOrUpdateTableStats(table, table_stats.get(), txn);
+  return ResultType::SUCCESS;
 }
 
-/**
- * AddSamplesTable - Add a samples table into the 'samples_db'.
- * The table name is generated by concatenating db_id and table_id with '_'.
- */
-void StatsStorage::AddSamplesTable(
-    storage::DataTable *data_table,
-    std::vector<std::unique_ptr<storage::Tuple>> &sampled_tuples) {
-  auto schema = data_table->GetSchema();
-  auto schema_copy = catalog::Schema::CopySchema(schema);
-  std::unique_ptr<catalog::Schema> schema_ptr(schema_copy);
-  auto catalog = catalog::Catalog::GetInstance();
-  bool is_catalog = false;
-  std::string samples_table_name = GenerateSamplesTableName(
-      data_table->GetDatabaseOid(), data_table->GetOid());
+// void StatsStorage::AnalayzeStatsForColumns(
+//               UNUSED_ATTRIBUTE std::string database_name,
+//               UNUSED_ATTRIBUTE std::string table_name,
+//               UNUSED_ATTRIBUTE std::vector<std::string> column_names) {
 
-  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
-  auto txn = txn_manager.BeginTransaction();
-  catalog->CreateTable(std::string(SAMPLES_DB_NAME), samples_table_name,
-                       std::move(schema_ptr), txn, is_catalog);
-  txn_manager.CommitTransaction(txn);
-
-  (void)sampled_tuples;
-  // for (auto &tuple : sampled_tuples) {
-  //   catalog::InsertTuple(table, std::move(tuple), nullptr);
-  // }
-}
-
-/**
- * GetTupleSamples - Query tuple samples by db_id and table_id.
- * Implement this function.
- */
-void StatsStorage::GetTupleSamples(
-    UNUSED_ATTRIBUTE oid_t database_id, UNUSED_ATTRIBUTE oid_t table_id,
-    UNUSED_ATTRIBUTE std::vector<storage::Tuple> &tuple_samples) {}
-
-/**
- * GetColumnSamples - Query column samples by db_id, table_id and column_id.
- * TODO: Implement this function.
- */
-void StatsStorage::GetColumnSamples(
-    UNUSED_ATTRIBUTE oid_t database_id, UNUSED_ATTRIBUTE oid_t table_id,
-    UNUSED_ATTRIBUTE oid_t column_id,
-    UNUSED_ATTRIBUTE std::vector<type::Value> &column_samples) {}
+// }
 
 } /* namespace optimizer */
 } /* namespace peloton */
