@@ -90,9 +90,11 @@ TEST_F(SelectivityTests, RangeSelectivityTest) {
   TestingSQLUtil::ExecuteSQLQuery("ANALYZE test");
 
   // Check new selectivity
-  double less_than_sel = Selectivity::GetLessThanSelectivity(db_id, table_id, 0, value1);
+  double less_than_sel =
+      Selectivity::GetLessThanSelectivity(db_id, table_id, 0, value1);
   ExpectSelectivityEqual(less_than_sel, 0.25);
-  // double greater_than_sel = Selectivity::GetGreaterThanSelectivity(db_id, table_id, 0, value1);
+  // double greater_than_sel = Selectivity::GetGreaterThanSelectivity(db_id,
+  // table_id, 0, value1);
   // ExpectSelectivityEqual(greater_than_sel, 0.75);
 
   // Free the database
@@ -124,16 +126,99 @@ TEST_F(SelectivityTests, LikeSelectivityTest) {
   oid_t db_id = data_table->GetDatabaseOid();
   oid_t table_id = data_table->GetOid();
 
-  double like_than_sel_0 = Selectivity::GetLikeSelectivity(db_id, table_id, 0, "a");
-  double like_than_sel_1 = Selectivity::GetLikeSelectivity(db_id, table_id, 1, "a");
-  double like_than_sel_2 = Selectivity::GetLikeSelectivity(db_id, table_id, 2, "a");
-  double like_than_sel_3 = Selectivity::GetLikeSelectivity(db_id, table_id, 3, "a");
-  (void) like_than_sel_3;
+  double like_than_sel_0 =
+      Selectivity::GetLikeSelectivity(db_id, table_id, 0, "a");
+  double like_than_sel_1 =
+      Selectivity::GetLikeSelectivity(db_id, table_id, 1, "a");
+  double like_than_sel_2 =
+      Selectivity::GetLikeSelectivity(db_id, table_id, 2, "a");
+  double like_than_sel_3 =
+      Selectivity::GetLikeSelectivity(db_id, table_id, 3, "a");
+  (void)like_than_sel_3;
 
   EXPECT_EQ(like_than_sel_0, 0);
   EXPECT_EQ(like_than_sel_1, 0);
   EXPECT_EQ(like_than_sel_2, 0);
-
 }
+
+/*
+TEST_F(SelectivityTests, EqualSelectivityTest) {
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  auto txn = txn_manager.BeginTransaction();
+  catalog::Catalog::GetInstance()->CreateDatabase(DEFAULT_DB_NAME, txn);
+  txn_manager.CommitTransaction(txn);
+
+  CreateAndLoadTable();
+
+  int nrow = 1000;
+  for (int i = 1; i <= nrow; i++) {
+    std::ostringstream os;
+    os << "INSERT INTO test VALUES (" << i << ", " << i % 3 + 1 << ", 1.21);";
+    TestingSQLUtil::ExecuteSQLQuery(os.str());
+  }
+
+  auto catalog = catalog::Catalog::GetInstance();
+  auto database = catalog->GetDatabaseWithName(DEFAULT_DB_NAME);
+  auto table = catalog->GetTableWithName(DEFAULT_DB_NAME, TEST_TABLE_NAME);
+  oid_t db_id = database->GetOid();
+  oid_t table_id = table->GetOid();
+
+  type::Value value1 = type::ValueFactory::GetDecimalValue(1.0);
+
+  // Check for default selectivity when table stats does not exist.
+  double sel = Selectivity::GetEqualSelectivity(db_id, table_id, 1, value1);
+  EXPECT_EQ(sel, DEFAULT_SELECTIVITY);
+
+  // Run analyze
+  TestingSQLUtil::ExecuteSQLQuery("ANALYZE test");
+
+  // Check selectivity
+  // equal, in mcv
+  double eq_sel_in_mcv = Selectivity::GetEqualSelectivity(db_id, table_id, 0,
+value1);
+  double neq_sel_in_mcv = Selectivity::GetNotEqualSelectivity(db_id, table_id,
+0, value1);
+  ExpectSelectivityEqual(eq_sel_in_mcv, 0.33);
+  ExpectSelectivityEqual(neq_sel_in_mcv, 0.67);
+
+  // Add other values into the table
+  // default top_k == 10, so add another 10 - 3 = 7 elements (4-10)
+  for (int i = 1; i <= nrow; i++) {
+    std::ostringstream os;
+    os << "INSERT INTO test VALUES (" << i + 1000 << ", " << i % 7 + 4 << ",
+1.21);";
+    //os << "INSERT INTO test VALUES (" << i << ", 1.1, 1.21);";
+    TestingSQLUtil::ExecuteSQLQuery(os.str());
+  }
+  // these elements will not be in mcv
+  for (int i = 1; i <= nrow; i++) {
+    std::ostringstream os;
+    os << "INSERT INTO test VALUES (" << i + 2000 << ", " << i % 50 + 11 << ",
+1.21);";
+    //os << "INSERT INTO test VALUES (" << i << ", 1.1, 1.21);";
+    TestingSQLUtil::ExecuteSQLQuery(os.str());
+  }
+
+  // Run analyze
+  TestingSQLUtil::ExecuteSQLQuery("ANALYZE test");
+
+  // Check selectivity
+  // equal, not in mcv
+  type::Value value2 = type::ValueFactory::GetDecimalValue(20.0);
+
+  double eq_sel_nin_mcv = Selectivity::GetEqualSelectivity(db_id, table_id, 1,
+value2);
+  double neq_sel_nin_mcv = Selectivity::GetNotEqualSelectivity(db_id, table_id,
+1, value2);
+  // (1 - 2/3) / (3 + 7 + 50 - 10) = 1 / 150 = 0.01667
+  ExpectSelectivityEqual(eq_sel_nin_mcv, 0.0066, 0.01);
+  ExpectSelectivityEqual(neq_sel_nin_mcv, 0.9933, 0.01);
+
+  // Free the database
+  txn = txn_manager.BeginTransaction();
+  catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
+  txn_manager.CommitTransaction(txn);
+}
+*/
 } /* namespace test */
 } /* namespace peloton */
