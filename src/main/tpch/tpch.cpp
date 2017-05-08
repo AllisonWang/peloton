@@ -16,7 +16,8 @@
 
 #include "benchmark/tpch/tpch_configuration.h"
 #include "benchmark/tpch/tpch_database.h"
-#include "benchmark/tpch/tpch_workload.h"
+#include "benchmark/tpch/tpch_stats.h"
+//#include "benchmark/tpch/tpch_workload.h"
 #include "common/logger.h"
 
 namespace peloton {
@@ -100,10 +101,14 @@ void RunBenchmark(const Configuration &config) {
   TPCHDatabase tpch_db{config};
 
   // Create the benchmark
-  TPCHBenchmark tpch_benchmark{config, tpch_db};
+//  TPCHBenchmark tpch_benchmark{config, tpch_db};
 
   // Run the benchmark
-  tpch_benchmark.RunBenchmark();
+//  tpch_benchmark.RunBenchmark();
+
+  TPCHStats tpch_stats{config, tpch_db};
+
+  tpch_stats.RunTest();
 }
 
 }  // namespace tpch

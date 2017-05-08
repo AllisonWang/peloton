@@ -102,7 +102,10 @@ TPCHDatabase::TPCHDatabase(const Configuration &c) : config_(c) {
 }
 
 TPCHDatabase::~TPCHDatabase() {
-  catalog::Catalog::GetInstance()->DropDatabaseWithOid(kTPCHDatabaseId);
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  auto txn = txn_manager.BeginTransaction();
+  catalog::Catalog::GetInstance()->DropDatabaseWithOid(kTPCHDatabaseId, txn);
+  txn_manager.CommitTransaction(txn);
 }
 
 // Create all the TPCH tables

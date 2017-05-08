@@ -168,7 +168,7 @@ void TPCHBenchmark::RunQuery(const TPCHBenchmark::QueryConfig &query_config) {
   codegen::QueryCompiler compiler;
   auto compiled_query = compiler.Compile(*plan, counter, &compile_stats);
 
-  codegen::Query::RuntimeStats overall_stats = {0.0, 0.0, 0.0};
+  codegen::Query::RuntimeStats overall_stats;
   for (uint32_t i = 0; i < config_.num_runs; i++) {
     // Reset the counter for this run
     counter.ResetCount();
