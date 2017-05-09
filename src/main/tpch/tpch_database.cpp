@@ -461,7 +461,89 @@ void TPCHDatabase::LoadPartTable() {
   SetTableIsLoaded(TableId::Part);
 }
 
-void TPCHDatabase::LoadSupplierTable() {}
+void TPCHDatabase::LoadSupplierTable() {
+  if (TableIsLoaded(TableId::Supplier)) {
+    return;
+  }
+
+  const std::string filename = config_.GetSupplierPath();
+
+  LOG_INFO("Loading Supplier ['%s']\n", filename.c_str());
+
+  auto &table = GetTable(TableId::Supplier);
+
+  Timer<std::ratio<1, 1000>> timer;
+  timer.Start();
+
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  auto *txn = txn_manager.BeginTransaction();
+
+  uint64_t num_tuples = 0;
+  std::unique_ptr<type::AbstractPool> pool{new type::EphemeralPool()};
+
+  ForEachLine(filename, [&](char *p) {
+    storage::Tuple tuple{table.GetSchema(), true /* allocate */};
+
+    // S_SUPPKEY
+    int32_t s_suppkey = std::atoi(p);
+    tuple.SetValue(0, type::ValueFactory::GetIntegerValue(s_suppkey));
+
+    // S_NAME
+    p = strchr(p, '|') + 1;
+    char *p_end = strchr(p, '|');
+
+    std::string s_name{p, p_end};
+    tuple.SetValue(1, type::ValueFactory::GetVarcharValue(s_name), pool.get());
+
+    // S_ADDRESS
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+
+    std::string s_address{p, p_end};
+    tuple.SetValue(2, type::ValueFactory::GetVarcharValue(s_address), pool.get());
+
+    // S_NATIONKEY
+    p = p_end + 1;
+
+    int32_t s_nationkey = std::atoi(p);
+    tuple.SetValue(3, type::ValueFactory::GetIntegerValue(s_nationkey));
+
+    // S_PHONE
+    p = strchr(p, '|') + 1;
+    p_end = strchr(p, '|');
+    std::string s_phone{p, p_end};
+    tuple.SetValue(4, type::ValueFactory::GetVarcharValue(s_phone), pool.get());
+
+    // S_ACCTBA
+    p = p_end + 1;
+    double s_acctba = std::atof(p);
+    tuple.SetValue(5, type::ValueFactory::GetDecimalValue(s_acctba));
+
+    // S_COMMENT
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    std::string s_comment{p, p_end};
+    tuple.SetValue(6, type::ValueFactory::GetVarcharValue(s_comment), pool.get());
+
+    // Insert into table
+    ItemPointer tuple_slot_id = table.InsertTuple(&tuple);
+    PL_ASSERT(tuple_slot_id.block != INVALID_OID);
+    PL_ASSERT(tuple_slot_id.offset != INVALID_OID);
+    txn_manager.PerformInsert(txn, tuple_slot_id);
+
+    num_tuples++;
+  });
+
+  // Commit
+  PL_ASSERT(txn_manager.CommitTransaction(txn) == ResultType::SUCCESS);
+
+  timer.Stop();
+  LOG_INFO("Loading Supplier finished: %.2f ms (%lu tuples)\n",
+           timer.GetDuration(), num_tuples);
+
+  // Set table as loaded
+  SetTableIsLoaded(TableId::Supplier);
+}
 
 void TPCHDatabase::LoadPartSupplierTable() {}
 
@@ -470,7 +552,7 @@ void TPCHDatabase::LoadCustomerTable() {
     return;
   }
 
-  const std::string filename = config_.GetPartPath();
+  const std::string filename = config_.GetCustomerPath();
 
   LOG_INFO("Loading Customer ['%s']\n", filename.c_str());
 
@@ -560,7 +642,71 @@ void TPCHDatabase::LoadCustomerTable() {
   SetTableIsLoaded(TableId::Customer);
 }
 
-void TPCHDatabase::LoadNationTable() {}
+void TPCHDatabase::LoadNationTable() {
+  if (TableIsLoaded(TableId::Nation)) {
+    return;
+  }
+
+  const std::string filename = config_.GetNationPath();
+
+  LOG_INFO("Loading Nation ['%s']\n", filename.c_str());
+
+  auto &table = GetTable(TableId::Nation);
+
+  Timer<std::ratio<1, 1000>> timer;
+  timer.Start();
+
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  auto *txn = txn_manager.BeginTransaction();
+
+  uint64_t num_tuples = 0;
+  std::unique_ptr<type::AbstractPool> pool{new type::EphemeralPool()};
+
+  ForEachLine(filename, [&](char *p) {
+    storage::Tuple tuple{table.GetSchema(), true /* allocate */};
+
+    // N_NATIONKEY
+    int32_t n_nationkey = std::atoi(p);
+    tuple.SetValue(0, type::ValueFactory::GetIntegerValue(n_nationkey));
+
+    // N_NAME
+    p = strchr(p, '|') + 1;
+    char *p_end = strchr(p, '|');
+
+    std::string n_name{p, p_end};
+    tuple.SetValue(1, type::ValueFactory::GetVarcharValue(n_name), pool.get());
+
+    // N_REGIONKEY
+    p = p_end + 1;
+
+    int32_t n_regionkey = std::atoi(p);
+    tuple.SetValue(2, type::ValueFactory::GetIntegerValue(n_regionkey));
+
+    // N_COMMENT
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    std::string n_comment{p, p_end};
+    tuple.SetValue(3, type::ValueFactory::GetVarcharValue(n_comment), pool.get());
+
+    // Insert into table
+    ItemPointer tuple_slot_id = table.InsertTuple(&tuple);
+    PL_ASSERT(tuple_slot_id.block != INVALID_OID);
+    PL_ASSERT(tuple_slot_id.offset != INVALID_OID);
+    txn_manager.PerformInsert(txn, tuple_slot_id);
+
+    num_tuples++;
+  });
+
+  // Commit
+  PL_ASSERT(txn_manager.CommitTransaction(txn) == ResultType::SUCCESS);
+
+  timer.Stop();
+  LOG_INFO("Loading Nation finished: %.2f ms (%lu tuples)\n",
+           timer.GetDuration(), num_tuples);
+
+  // Set table as loaded
+  SetTableIsLoaded(TableId::Nation);
+}
 
 void TPCHDatabase::LoadLineitemTable() {
   // Short-circuit if table is already loaded
@@ -679,7 +825,100 @@ void TPCHDatabase::LoadLineitemTable() {
 
 void TPCHDatabase::LoadRegionTable() {}
 
-void TPCHDatabase::LoadOrdersTable() {}
+void TPCHDatabase::LoadOrdersTable() {
+  /*
+  if (TableIsLoaded(TableId::Orders)) {
+    return;
+  }
+
+  const std::string filename = config_.GetOrdersPath();
+
+  LOG_INFO("Loading Orders ['%s']\n", filename.c_str());
+
+  auto &table = GetTable(TableId::Orders);
+
+  Timer<std::ratio<1, 1000>> timer;
+  timer.Start();
+
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  auto *txn = txn_manager.BeginTransaction();
+
+  uint64_t num_tuples = 0;
+  std::unique_ptr<type::AbstractPool> pool{new type::EphemeralPool()};
+
+  ForEachLine(filename, [&](char *p) {
+    storage::Tuple tuple{table.GetSchema(), true};
+
+    // O_ORDERKEY
+    int32_t o_orderkey = std::atoi(p);
+    tuple.SetValue(0, type::ValueFactory::GetIntegerValue(o_orderkey));
+
+    // O_CUSTKEY
+    p = strchr(p, '|') + 1;
+
+    int32_t o_custkey = std::atoi(p);
+    tuple.SetValue(1, type::ValueFactory::GetIntegerValue(o_custkey));
+
+    // O_ORDERSTATUS
+    p = strchr(p, '|') + 1;
+    char *p_end = strchr(p, '|');
+    tuple.SetValue(2, type::ValueFactory::GetVarcharValue(std::string{p, p_end}));
+
+    // O_TOTALPRICE
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    double o_totalprice = std::atof(p);
+    tuple.SetValue(3, type::ValueFactory::GetDecimalValue(o_totalprice));
+
+    // O_ORDERDATE
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    tuple.SetValue(4, type::ValueFactory::GetDateValue(ConvertDate(p)));
+
+    // O_ORDERPRIORITY
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    char o_prio = *p;
+    tuple.SetValue(5, type::ValueFactory::GetIntegerValue(o_prio));
+
+    // O_CLERK
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    char o_clerk = *p;
+    tuple.SetValue(6, type::ValueFactory::GetIntegerValue(o_clerk));
+
+    // O_SHIPPRIORITY
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    double o_shippriority = std::atof(p);
+    tuple.SetValue(7, type::ValueFactory::GetDecimalValue(o_shippriority));
+
+    // O_COMMENT
+    p = p_end + 1;
+    p_end = strchr(p, '|');
+    std::string o_comment{p, p_end};
+    tuple.SetValue(8, type::ValueFactory::GetVarcharValue(o_comment), pool.get());
+
+    // Insert into table
+    ItemPointer tuple_slot_id = table.InsertTuple(&tuple);
+    PL_ASSERT(tuple_slot_id.block != INVALID_OID);
+    PL_ASSERT(tuple_slot_id.offset != INVALID_OID);
+    txn_manager.PerformInsert(txn, tuple_slot_id);
+
+    num_tuples++;
+  });
+
+  // Commit
+  PL_ASSERT(txn_manager.CommitTransaction(txn) == ResultType::SUCCESS);
+
+  timer.Stop();
+  LOG_INFO("Loading Orders finished: %.2f ms (%lu tuples)\n",
+           timer.GetDuration(), num_tuples);
+
+  // Set table as loaded
+  SetTableIsLoaded(TableId::Orders);
+  */
+}
 
 }  // namespace tpch
 }  // namespace benchmark

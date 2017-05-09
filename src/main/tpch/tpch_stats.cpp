@@ -39,15 +39,14 @@ TPCHStats::TPCHStats(const Configuration &config, TPCHDatabase &db)
 
 void TPCHStats::RunTest() {
   std::vector<benchmark::tpch::TableId> tpch_table_ids = {
-    TableId::Customer,
     TableId::Part,
-    TableId::Supplier,
-    TableId::PartSupp,
+    //TableId::Supplier,
+    //TableId::PartSupp,
     TableId::Customer,
     TableId::Nation,
     TableId::Lineitem,
-    TableId::Region,
-    TableId::Orders
+    //TableId::Region,
+    //TableId::Orders
   };
   
   for (auto tid : tpch_table_ids) {
@@ -64,29 +63,65 @@ void TPCHStats::RunTest() {
 
   auto catalog = catalog::Catalog::GetInstance();
   auto database = catalog->GetDatabaseWithOid(44);
-  auto table = catalog->GetTableWithOid(44, 44);
-  oid_t db_id = database->GetOid();
-  oid_t table_id = table->GetOid();
-  oid_t column_id = 0;  // first column
-  auto table_stats = stats_storage->GetTableStats(db_id, table_id);
 
-  
+  for (auto tid : tpch_table_ids) {
+    //if (db_.TableIsLoaded(tid)) {
+    uint32_t t_id = static_cast<uint32_t>(tid);
+    auto table = catalog->GetTableWithOid(44, t_id);
+    oid_t db_id = database->GetOid();
+    oid_t table_id = table->GetOid();
+    
+    auto table_stats = stats_storage->GetTableStats(db_id, table_id);
 
-  type::Value value1 = type::ValueFactory::GetIntegerValue(150);
-  optimizer::ValueCondition condition{column_id, ExpressionType::COMPARE_LESSTHAN, value1};
+    // type::Value value1 = type::ValueFactory::GetIntegerValue(150);
+    // optimizer::ValueCondition condition{column_id, ExpressionType::COMPARE_LESSTHAN, value1};
 
-  // Get updated table stats and check new selectivity
+    // Get updated table stats and check new selectivity
     table_stats = stats_storage->GetTableStats(db_id, table_id);
-    double less_than_sel =
-  optimizer::Selectivity::ComputeSelectivity(table_stats, condition);
+    //double less_than_sel = optimizer::Selectivity::ComputeSelectivity(table_stats, condition);
 
-  //auto column_stats = table_stats->GetColumnStats(column_id);
-  //LOG_INFO("%1.5f; %1.5f; %lu", less_than_sel, column_stats->cardinality, column_stats->num_rows);
-  LOG_INFO("%1.5f; %1.5f", less_than_sel, table_stats->GetCardinality(0));
+    
+    //LOG_INFO("%1.5f; %1.5f; %lu", less_than_sel, column_stats->cardinality, column_stats->num_rows);
+    // LOG_INFO("%1.5f; %1.5f", less_than_sel, table_stats->GetCardinality(0));
+
+    // table_id, CARDI, CARDERR, NUMROWS 
+    // LOG_INFO("%u\t%1.5f\t%lu", t_id, table_stats->GetCardinality(0), table_stats->num_rows);
+
+    oid_t column_id = 0;  // first column
+    auto column_stats = table_stats->GetColumnStats(column_id);
+    // table_id, column_id, CARDI, num_rows, FRAC_NULL
+    LOG_INFO("%u\t%u\t%1.5f\t%lu\t%1.5f", t_id, column_id, column_stats->cardinality, column_stats->num_rows, column_stats->frac_null);
+    
+    // most common vals & freqs
+    std::vector<double> most_common_vals = column_stats->most_common_vals;
+    std::vector<double> most_common_freqs = column_stats->most_common_freqs;
+    std::vector<double>::iterator first = most_common_vals.begin(), last = most_common_vals.end(), 
+      ffirst = most_common_freqs.begin(), flast = most_common_freqs.end();
+
+    LOG_INFO("t-%u: most_common_vals & freqs: \n", t_id);
+    while ((first != last) &&(ffirst != flast)) {
+      // val : freq
+      LOG_INFO("%1.5f\t%1.5f", *first, *ffirst);
+      ++first;
+      ++ffirst;
+    }
+
+    std::vector<double> histogram_bounds = column_stats->histogram_bounds;
+    first = histogram_bounds.begin();
+    last = histogram_bounds.end();
+    LOG_INFO("t-%u: histogram_bounds: \n", t_id);
+    while(first != last) {
+      LOG_INFO("%1.5f", *first);
+      ++first;
+    }
+    
+    
+    //}
+    
 
   // txn_manager.CommitTransaction(txn);
+  }
   
-
 }
 
 }  // namespace tpch
