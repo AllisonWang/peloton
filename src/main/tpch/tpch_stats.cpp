@@ -87,8 +87,10 @@ void TPCHStats::RunTest() {
     // table_id, CARDI, CARDERR, NUMROWS 
     // LOG_INFO("%u\t%1.5f\t%lu", t_id, table_stats->GetCardinality(0), table_stats->num_rows);
 
-    oid_t column_id = 0;  // first column
-    auto column_stats = table_stats->GetColumnStats(column_id);
+    // oid_t column_id = 0;  // first column
+    // auto column_stats = table_stats->GetColumnStats(column_id);
+    LOG_INFO("%s",table_stats->ToCSV().c_str());
+    /*
     // table_id, column_id, CARDI, num_rows, FRAC_NULL
     LOG_INFO("%u\t%u\t%1.5f\t%lu\t%1.5f", t_id, column_id, column_stats->cardinality, column_stats->num_rows, column_stats->frac_null);
     
@@ -99,7 +101,7 @@ void TPCHStats::RunTest() {
       ffirst = most_common_freqs.begin(), flast = most_common_freqs.end();
 
     LOG_INFO("t-%u: most_common_vals & freqs: \n", t_id);
-    while ((first != last) &&(ffirst != flast)) {
+    while ((first != last) && (ffirst != flast)) {
       // val : freq
       LOG_INFO("%1.5f\t%1.5f", *first, *ffirst);
       ++first;
@@ -107,20 +109,18 @@ void TPCHStats::RunTest() {
     }
 
     std::vector<double> histogram_bounds = column_stats->histogram_bounds;
-    first = histogram_bounds.begin();
-    last = histogram_bounds.end();
+    std::vector<double>::iterator f = histogram_bounds.begin();
+    std::vector<double>::iterator l = histogram_bounds.end();
     LOG_INFO("t-%u: histogram_bounds: \n", t_id);
-    while(first != last) {
-      LOG_INFO("%1.5f", *first);
-      ++first;
+    while(f != l) {
+      LOG_INFO("%1.5f", *f);
+      ++f;
     }
-    
-    
-    //}
+    */
     
 
   // txn_manager.CommitTransaction(txn);
-  }
+  } // end of for
   
 }
 
