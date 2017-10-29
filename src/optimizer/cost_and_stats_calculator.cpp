@@ -27,12 +27,13 @@ namespace peloton {
 		// Generate output stats based on the input stats and the property column
 		std::shared_ptr<TableStats> generateOutputStat(std::shared_ptr<TableStats> input_table_stats,
 																									 const PropertyColumns* columns_prop) {
-			std::vector<std::shared_ptr<ColumnStats>> output_column_stats;
+      auto output = std::make_shared<TableStats>(input_table_stats->num_rows);
+
 			for (size_t i = 0; i < columns_prop->GetSize(); i++) {
 				oid_t column_id = (oid_t)((expression::TupleValueExpression *)columns_prop->GetColumn(i).get())->GetColumnId();
-				output_column_stats.push_back(input_table_stats->GetColumnStats(column_id));
+				output->AddColumnStats(input_table_stats->GetColumnStats(column_id));
 			}
-			return std::make_shared<TableStats>(input_table_stats->num_rows, output_column_stats);
+			return output;
 		}
 
 		// Update output stats num_rows for conjunctions based on predicate
