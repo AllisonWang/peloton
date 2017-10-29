@@ -4,9 +4,9 @@
 //
 // date_functions.h
 //
-// Identification: src/include/expression/date_functions.h
+// Identification: src/include/function/date_functions.h
 //
-// Copyright (c) 2015-16, Carnegie Mellon University Database Group
+// Copyright (c) 2015-2017, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
 
@@ -16,11 +16,11 @@
 #include <vector>
 
 #include "common/logger.h"
-#include "expression/abstract_expression.h"
 #include "type/types.h"
+#include "type/value.h"
 
 namespace peloton {
-namespace expression {
+namespace function {
 
 class DateFunctions {
  public:
@@ -30,7 +30,8 @@ class DateFunctions {
   // (2) The second argument is the timestamp to extract the part from
   // @return The Value returned should be a type::DecimalValue that is
   // constructed using type::ValueFactory
-  static type::Value Extract(const std::vector<type::Value>& args);
+  static type::Value Extract(const std::vector<type::Value> &args);
 };
-}  // namespace expression
+
+}  // namespace function
 }  // namespace peloton

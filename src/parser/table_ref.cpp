@@ -6,7 +6,7 @@
 //
 // Identification: src/parser/table_ref.cpp
 //
-// Copyright (c) 2015-16, Carnegie Mellon University Database Group
+// Copyright (c) 2015-17, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
 
@@ -17,17 +17,7 @@ namespace peloton {
 namespace parser {
 
 TableRef::~TableRef() {
-  delete table_info_;
-  delete[] alias;
-  delete[] schema;
-
   delete select;
-  delete join;
-
-  if (list) {
-    for (auto ref : (*list)) delete ref;
-    delete list;
-  }
 }
 
 }  // namespace parser

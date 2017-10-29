@@ -18,6 +18,7 @@
 #include "common/logger.h"
 #include "index/index.h"
 #include "storage/tuple.h"
+#include "type/value_peeker.h"
 
 #include "index/index_util.h"
 
@@ -233,10 +234,8 @@ class ConjunctionScanPredicate {
       PL_ASSERT(high_key_p_ != nullptr);
     }
 
-    if (high_key_p_ != nullptr) {
-      delete high_key_p_;
-    }
-
+    delete high_key_p_;
+  
     return;
   }
 

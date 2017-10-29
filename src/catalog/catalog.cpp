@@ -12,24 +12,22 @@
 
 #include "catalog/catalog.h"
 
-#include "common/exception.h"
-#include "common/macros.h"
-
 #include "catalog/column_catalog.h"
 #include "catalog/index_catalog.h"
-#include "catalog/table_catalog.h"
 #include "catalog/database_catalog.h"
 #include "catalog/database_metrics_catalog.h"
+#include "catalog/table_catalog.h"
 #include "catalog/table_metrics_catalog.h"
 #include "catalog/index_metrics_catalog.h"
 #include "catalog/query_metrics_catalog.h"
 #include "catalog/settings_catalog.h"
 #include "concurrency/transaction_manager_factory.h"
 #include "catalog/trigger_catalog.h"
-#include "concurrency/transaction_manager_factory.h"
-#include "expression/date_functions.h"
-#include "expression/decimal_functions.h"
-#include "expression/string_functions.h"
+#include "catalog/proc_catalog.h"
+#include "catalog/language_catalog.h"
+#include "function/date_functions.h"
+#include "function/decimal_functions.h"
+#include "function/string_functions.h"
 #include "index/index_factory.h"
 #include "storage/storage_manager.h"
 #include "storage/table_factory.h"
@@ -39,7 +37,7 @@ namespace peloton {
 namespace catalog {
 
 // Get instance of the global catalog
-Catalog *Catalog::GetInstance(void) {
+Catalog *Catalog::GetInstance() {
   static Catalog global_catalog;
   return &global_catalog;
 }
@@ -138,8 +136,6 @@ Catalog::Catalog() : pool_(new type::EphemeralPool()) {
 
   // Commit transaction
   txn_manager.CommitTransaction(txn);
-
-  InitializeFunctions();
 }
 
 void Catalog::Bootstrap() {
@@ -151,10 +147,14 @@ void Catalog::Bootstrap() {
   IndexMetricsCatalog::GetInstance(txn);
   QueryMetricsCatalog::GetInstance(txn);
   SettingsCatalog::GetInstance(txn);
-
   TriggerCatalog::GetInstance(txn);
+  LanguageCatalog::GetInstance(txn);
+  ProcCatalog::GetInstance(txn);
 
   txn_manager.CommitTransaction(txn);
+
+  InitializeLanguages();
+  InitializeFunctions();
 }
 
 //===----------------------------------------------------------------------===//
@@ -259,7 +259,7 @@ ResultType Catalog::CreateTable(const std::string &database_name,
   pg_table->InsertTable(table_oid, table_name, database_object->database_oid,
                         pool_.get(), txn);
   oid_t column_id = 0;
-  for (auto column : table->GetSchema()->GetColumns()) {
+  for (const auto &column : table->GetSchema()->GetColumns()) {
     ColumnCatalog::GetInstance()->InsertColumn(
         table_oid, column.GetName(), column_id, column.GetOffset(),
         column.GetType(), column.IsInlined(), column.GetConstraints(),
@@ -796,61 +796,196 @@ Catalog::~Catalog() {
 // FUNCTION
 //===--------------------------------------------------------------------===//
 
-void Catalog::AddFunction(
+/* @brief
+ * Add a new built-in function. This proceeds in two steps:
+ *   1. Add the function information into pg_catalog.pg_proc
+ *   2. Register the function pointer in function::BuiltinFunction
+ * @param   name & argument_types   function name and arg types used in SQL
+ * @param   return_type   the return type
+ * @param   prolang       the oid of which language the function is
+ * @param   func_name     the function name in C++ source (should be unique)
+ * @param   func_ptr      the pointer to the function
+ */
+void Catalog::AddBuiltinFunction(
     const std::string &name, const std::vector<type::TypeId> &argument_types,
-    const type::TypeId return_type,
-    type::Value (*func_ptr)(const std::vector<type::Value> &)) {
-  PL_ASSERT(functions_.count(name) == 0);
-  functions_[name] = FunctionData{name, argument_types, return_type, func_ptr};
-}
-
-const FunctionData Catalog::GetFunction(const std::string &name) {
-  if (functions_.count(name) == 0) {
-    throw Exception("function " + name + " not found.");
+    const type::TypeId return_type, oid_t prolang, const std::string &func_name,
+    function::BuiltInFuncType func, concurrency::Transaction *txn) {
+  if (!ProcCatalog::GetInstance().InsertProc(name, return_type, argument_types,
+                                             prolang, func_name, pool_.get(),
+                                             txn)) {
+    throw CatalogException("Failed to add function " + func_name);
   }
-  return functions_[name];
+  function::BuiltInFunctions::AddFunction(func_name, func);
 }
 
-void Catalog::RemoveFunction(const std::string &name) {
-  functions_.erase(name);
+const FunctionData Catalog::GetFunction(
+    const std::string &name, const std::vector<type::TypeId> &argument_types) {
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  auto txn = txn_manager.BeginTransaction();
+
+  // Lookup the function in pg_proc
+  auto &proc_catalog = ProcCatalog::GetInstance();
+  auto proc_catalog_obj = proc_catalog.GetProcByName(name, argument_types, txn);
+  if (proc_catalog_obj == nullptr) {
+    txn_manager.AbortTransaction(txn);
+    throw CatalogException("Failed to find function " + name);
+  }
+
+  // If the language isn't 'internal', crap out ... for now ...
+  auto lang_catalog_obj = proc_catalog_obj->GetLanguage();
+  if (lang_catalog_obj == nullptr ||
+      lang_catalog_obj->GetName() != "internal") {
+    txn_manager.AbortTransaction(txn);
+    throw CatalogException(
+        "Peloton currently only supports internal functions. Function " + name +
+        " has language '" + lang_catalog_obj->GetName() + "'");
+  }
+
+  // If the function is "internal", perform the lookup in our built-in
+  // functions map (i.e., function::BuiltInFunctions) to get the function
+  FunctionData result;
+  result.argument_types_ = argument_types;
+  result.func_name_ = proc_catalog_obj->GetSrc();
+  result.return_type_ = proc_catalog_obj->GetRetType();
+  result.func_ = function::BuiltInFunctions::GetFuncByName(result.func_name_);
+
+  if (result.func_.impl == nullptr) {
+    txn_manager.AbortTransaction(txn);
+    throw CatalogException("Function " + name +
+                           " is internal, but doesn't have a function address");
+  }
+
+  txn_manager.CommitTransaction(txn);
+  return result;
+}
+
+void Catalog::InitializeLanguages() {
+  static bool initialized = false;
+  if (!initialized) {
+    auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+    auto txn = txn_manager.BeginTransaction();
+    // add "internal" language
+    if (!LanguageCatalog::GetInstance().InsertLanguage("internal", pool_.get(),
+                                                       txn)) {
+      txn_manager.AbortTransaction(txn);
+      throw CatalogException("Failed to add language 'internal'");
+    }
+    txn_manager.CommitTransaction(txn);
+    initialized = true;
+  }
 }
 
 void Catalog::InitializeFunctions() {
-  /**
-   * string functions
-   */
-  AddFunction("ascii", {type::TypeId::VARCHAR}, type::TypeId::INTEGER,
-              expression::StringFunctions::Ascii);
-  AddFunction("chr", {type::TypeId::INTEGER}, type::TypeId::VARCHAR,
-              expression::StringFunctions::Chr);
-  AddFunction("substr", {type::TypeId::VARCHAR, type::TypeId::INTEGER,
-                         type::TypeId::INTEGER},
-              type::TypeId::VARCHAR, expression::StringFunctions::Substr);
-  AddFunction("concat", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
-              type::TypeId::VARCHAR, expression::StringFunctions::Concat);
-  AddFunction("char_length", {type::TypeId::VARCHAR}, type::TypeId::INTEGER,
-              expression::StringFunctions::CharLength);
-  AddFunction("octet_length", {type::TypeId::VARCHAR}, type::TypeId::INTEGER,
-              expression::StringFunctions::OctetLength);
-  AddFunction("repeat", {type::TypeId::VARCHAR, type::TypeId::INTEGER},
-              type::TypeId::VARCHAR, expression::StringFunctions::Repeat);
-  AddFunction("replace", {type::TypeId::VARCHAR, type::TypeId::VARCHAR,
-                          type::TypeId::VARCHAR},
-              type::TypeId::VARCHAR, expression::StringFunctions::Replace);
-  AddFunction("ltrim", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
-              type::TypeId::VARCHAR, expression::StringFunctions::LTrim);
-  AddFunction("rtrim", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
-              type::TypeId::VARCHAR, expression::StringFunctions::RTrim);
-  AddFunction("btrim", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
-              type::TypeId::VARCHAR, expression::StringFunctions::BTrim);
-  AddFunction("sqrt", {type::TypeId::DECIMAL}, type::TypeId::DECIMAL,
-              expression::DecimalFunctions::Sqrt);
+  static bool initialized = false;
+  if (!initialized) {
+    auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+    auto txn = txn_manager.BeginTransaction();
 
-  /**
-   * date functions
-   */
-  AddFunction("extract", {type::TypeId::INTEGER, type::TypeId::TIMESTAMP},
-              type::TypeId::DECIMAL, expression::DateFunctions::Extract);
+    auto lang_object =
+        LanguageCatalog::GetInstance().GetLanguageByName("internal", txn);
+    if (lang_object == nullptr) {
+      throw CatalogException("Language 'internal' does not exist");
+    }
+    oid_t internal_lang = lang_object->GetOid();
+
+    try {
+      /**
+       * string functions
+       */
+      AddBuiltinFunction(
+          "ascii", {type::TypeId::VARCHAR}, type::TypeId::INTEGER,
+          internal_lang, "Ascii",
+          function::BuiltInFuncType{OperatorId::Ascii,
+                                    function::StringFunctions::_Ascii},
+          txn);
+      AddBuiltinFunction("chr", {type::TypeId::INTEGER}, type::TypeId::VARCHAR,
+                         internal_lang, "Chr",
+                         function::BuiltInFuncType{
+                             OperatorId::Chr, function::StringFunctions::Chr},
+                         txn);
+      AddBuiltinFunction(
+          "concat", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
+          type::TypeId::VARCHAR, internal_lang, "Concat",
+          function::BuiltInFuncType{OperatorId::Concat,
+                                    function::StringFunctions::Concat},
+          txn);
+      AddBuiltinFunction(
+          "substr",
+          {type::TypeId::VARCHAR, type::TypeId::INTEGER, type::TypeId::INTEGER},
+          type::TypeId::VARCHAR, internal_lang, "Substr",
+          function::BuiltInFuncType{OperatorId::Substr,
+                                    function::StringFunctions::Substr},
+          txn);
+      AddBuiltinFunction(
+          "char_length", {type::TypeId::VARCHAR}, type::TypeId::INTEGER,
+          internal_lang, "CharLength",
+          function::BuiltInFuncType{OperatorId::CharLength,
+                                    function::StringFunctions::CharLength},
+          txn);
+      AddBuiltinFunction(
+          "octet_length", {type::TypeId::VARCHAR}, type::TypeId::INTEGER,
+          internal_lang, "OctetLength",
+          function::BuiltInFuncType{OperatorId::OctetLength,
+                                    function::StringFunctions::OctetLength},
+          txn);
+      AddBuiltinFunction(
+          "repeat", {type::TypeId::VARCHAR, type::TypeId::INTEGER},
+          type::TypeId::VARCHAR, internal_lang, "Repeat",
+          function::BuiltInFuncType{OperatorId::Repeat,
+                                    function::StringFunctions::Repeat},
+          txn);
+      AddBuiltinFunction(
+          "replace",
+          {type::TypeId::VARCHAR, type::TypeId::VARCHAR, type::TypeId::VARCHAR},
+          type::TypeId::VARCHAR, internal_lang, "Replace",
+          function::BuiltInFuncType{OperatorId::Replace,
+                                    function::StringFunctions::Replace},
+          txn);
+      AddBuiltinFunction(
+          "ltrim", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
+          type::TypeId::VARCHAR, internal_lang, "LTrim",
+          function::BuiltInFuncType{OperatorId::LTrim,
+                                    function::StringFunctions::LTrim},
+          txn);
+      AddBuiltinFunction(
+          "rtrim", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
+          type::TypeId::VARCHAR, internal_lang, "RTrim",
+          function::BuiltInFuncType{OperatorId::RTrim,
+                                    function::StringFunctions::RTrim},
+          txn);
+      AddBuiltinFunction(
+          "btrim", {type::TypeId::VARCHAR, type::TypeId::VARCHAR},
+          type::TypeId::VARCHAR, internal_lang, "btrim",
+          function::BuiltInFuncType{OperatorId::BTrim,
+                                    function::StringFunctions::BTrim},
+          txn);
+
+      /**
+       * decimal functions
+       */
+      AddBuiltinFunction(
+          "sqrt", {type::TypeId::DECIMAL}, type::TypeId::DECIMAL, internal_lang,
+          "Sqrt", function::BuiltInFuncType{OperatorId::Sqrt,
+                                            function::DecimalFunctions::Sqrt},
+          txn);
+
+      /**
+       * date functions
+       */
+      AddBuiltinFunction(
+          "extract", {type::TypeId::INTEGER, type::TypeId::TIMESTAMP},
+          type::TypeId::DECIMAL, internal_lang, "Extract",
+          function::BuiltInFuncType{OperatorId::Extract,
+                                    function::DateFunctions::Extract},
+          txn);
+    } catch (CatalogException &e) {
+      txn_manager.AbortTransaction(txn);
+      throw e;
+    }
+    txn_manager.CommitTransaction(txn);
+    initialized = true;
+  }
 }
+
 }  // namespace catalog
 }  // namespace peloton

@@ -259,7 +259,7 @@ void OperatorToPlanTransformer::Visit(const PhysicalHashGroupBy *op) {
   PL_ASSERT(col_prop != nullptr);
 
   output_plan_ = GenerateAggregatePlan(col_prop, AggregateType::HASH,
-                                            &op->columns, op->having);
+                                       &op->columns, op->having);
 }
 
 void OperatorToPlanTransformer::Visit(const PhysicalSortGroupBy *op) {
@@ -269,7 +269,7 @@ void OperatorToPlanTransformer::Visit(const PhysicalSortGroupBy *op) {
   PL_ASSERT(col_prop != nullptr);
 
   output_plan_ = GenerateAggregatePlan(col_prop, AggregateType::SORTED,
-                                            &op->columns, op->having);
+                                       &op->columns, op->having);
 }
 
 void OperatorToPlanTransformer::Visit(const PhysicalAggregate *) {
@@ -378,14 +378,14 @@ void OperatorToPlanTransformer::Visit(const PhysicalUpdate *op) {
   GenerateTableExprMap(table_expr_map, table_alias, op->target_table);
 
   // Evaluate update expression and add to target list
-  for (auto update : op->updates) {
-    auto column = std::string(update->column);
+  for (auto& update : *(op->updates)) {
+    auto column = update->column;
     auto col_id = schema->GetColumnID(column);
     if (update_col_ids.find(col_id) != update_col_ids.end())
       throw SyntaxException("Multiple assignments to same column " + column);
     update_col_ids.insert(col_id);
     expression::ExpressionUtil::EvaluateExpression({table_expr_map},
-                                                   update->value);
+                                                   update->value.get());
     planner::DerivedAttribute attribute{update->value->Copy()};
     tl.emplace_back(col_id, attribute);
   }
@@ -437,7 +437,6 @@ vector<oid_t> OperatorToPlanTransformer::GenerateColumnsForScan(
       column_ids.push_back(col_id);
     GenerateTableExprMap(*output_expr_map_, alias, table);
     auto t = *output_expr_map_;
-    LOG_INFO("%ld", t.size());
   } else {
     auto output_column_size = column_prop->GetSize();
     for (oid_t idx = 0; idx < output_column_size; ++idx) {
@@ -661,9 +660,13 @@ unique_ptr<planner::AbstractPlan> OperatorToPlanTransformer::GenerateJoinPlan(
     unique_ptr<planner::HashPlan> hash_plan(new planner::HashPlan(hash_keys));
     hash_plan->AddChild(move(children_plans_[1]));
 
+    // TODO: Right now we always enable bloom filter. Later when we have
+    // cost model in place, we need to decide whether to enable bloom filter
+    // based on the size of the hash table and its selectivity
     join_plan = unique_ptr<planner::AbstractPlan>(
         new planner::HashJoinPlan(join_type, move(predicate), move(proj_info),
-                                  schema_ptr, left_hash_keys, right_hash_keys));
+                                  schema_ptr, left_hash_keys, right_hash_keys,
+                                  true));
 
     join_plan->AddChild(move(children_plans_[0]));
     join_plan->AddChild(move(hash_plan));

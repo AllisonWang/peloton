@@ -45,10 +45,20 @@ void Statement::ParseQueryTypeString(const std::string& query_string,
   std::stringstream stream(query_string);
   stream >> query_type_string;
   if (query_type_string.back() == ';') {
-    query_type_string =
-        query_type_string.substr(0, query_type_string.length() - 1);
+    query_type_string.pop_back();
   }
   boost::to_upper(query_type_string);
+}
+
+void Statement::ParseCreateTypeString(const std::string& query_string,
+                                     std::string& create_type_string) {
+  std::stringstream stream(query_string);
+  std::string query_type_string;
+  stream >> query_type_string;
+  boost::to_upper(query_type_string);
+  PL_ASSERT(query_type_string == "CREATE");
+  stream >> create_type_string;
+  boost::to_upper(create_type_string);
 }
 
 void Statement::MapToQueryType(const std::string& query_type_string,

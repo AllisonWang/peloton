@@ -26,6 +26,9 @@
 #include "type/type_id.h"
 #include "parser/pg_trigger.h"
 
+#include "unistd.h"
+#include "common/logger.h"
+#include "common/macros.h"
 namespace peloton {
 
 // For all of the enums defined in this header, we will
@@ -232,45 +235,19 @@ enum class ExpressionType {
   ROW_SUBQUERY = 400,
   SELECT_SUBQUERY = 401,
 
-  // -----------------------------
-  // String operators
-  // -----------------------------
-  SUBSTR = 500,
-  ASCII = 501,
-  OCTET_LEN = 502,
-  CHAR = 503,
-  CHAR_LEN = 504,
-  SPACE = 505,
-  REPEAT = 506,
-  POSITION = 507,
-  LEFT = 508,
-  RIGHT = 509,
-  CONCAT = 510,
-  LTRIM = 511,
-  RTRIM = 512,
-  BTRIM = 513,
-  REPLACE = 514,
-  OVERLAY = 515,
-
-  // -----------------------------
-  // Date operators
-  // -----------------------------
-  EXTRACT = 600,
-  DATE_TO_TIMESTAMP = 601,
-
   //===--------------------------------------------------------------------===//
   // Parser
   //===--------------------------------------------------------------------===//
-  STAR = 700,
-  PLACEHOLDER = 701,
-  COLUMN_REF = 702,
-  FUNCTION_REF = 703,
-  TABLE_REF = 704,
+  STAR = 500,
+  PLACEHOLDER = 501,
+  COLUMN_REF = 502,
+  FUNCTION_REF = 503,
+  TABLE_REF = 504,
 
   //===--------------------------------------------------------------------===//
   // Misc
   //===--------------------------------------------------------------------===//
-  CAST = 900
+  CAST = 600
 };
 
 // When short_str is true, return a short version of ExpressionType string
@@ -640,6 +617,9 @@ enum class CreateType {
   CONSTRAINT = 4,             // constraint create type
   TRIGGER = 5                 // trigger create type
 };
+std::string CreateTypeToString(CreateType type);
+CreateType StringToCreateType(const std::string &str);
+std::ostream &operator<<(std::ostream &os, const CreateType &type);
 
 //===--------------------------------------------------------------------===//
 // Drop Types
@@ -653,9 +633,9 @@ enum class DropType {
   CONSTRAINT = 4,             // constraint drop type
   TRIGGER = 5                 // trigger drop type
 };
-std::string CreateTypeToString(CreateType type);
-CreateType StringToCreateType(const std::string &str);
-std::ostream &operator<<(std::ostream &os, const CreateType &type);
+std::string DropTypeToString(DropType type);
+DropType StringToDropType(const std::string &str);
+std::ostream &operator<<(std::ostream &os, const DropType &type);
 
 //===--------------------------------------------------------------------===//
 // Statement Types
@@ -832,7 +812,8 @@ enum class ResultType {
   FAILURE = 2,
   ABORTED = 3,  // aborted
   NOOP = 4,     // no op
-  UNKNOWN = 5
+  UNKNOWN = 5,
+  QUEUING = 6
 };
 std::string ResultTypeToString(ResultType type);
 ResultType StringToResultType(const std::string &str);
@@ -889,6 +870,7 @@ enum class FKConstrMatchType {
 //===--------------------------------------------------------------------===//
 // Set Operation Types
 //===--------------------------------------------------------------------===//
+
 enum class SetOpType {
   INVALID = INVALID_TYPE_ID,
   INTERSECT = 1,
@@ -1048,6 +1030,23 @@ enum class OperatorId : uint32_t {
   Mod,
   LogicalAnd,
   LogicalOr,
+  Ascii,
+  Chr,
+  Concat,
+  Substr,
+  CharLength,
+  OctetLength,
+  Repeat,
+  Replace,
+  LTrim,
+  RTrim,
+  BTrim,
+  Sqrt,
+  Extract,
+
+  // Add more operators here, before the last "Invalid" entry
+
+  Invalid
 };
 std::string OperatorIdToString(OperatorId op_id);
 
@@ -1232,6 +1231,8 @@ bool HexDecodeToBinary(unsigned char *bufferdst, const char *hexString);
 
 std::string TypeIdToString(type::TypeId type);
 type::TypeId StringToTypeId(const std::string &str);
+std::string TypeIdArrayToString(const std::vector<type::TypeId> &types);
+std::vector<type::TypeId> StringToTypeArray(const std::string &types);
 
 type::TypeId PostgresValueTypeToPelotonValueType(PostgresValueType type);
 ConstraintType PostgresConstraintTypeToPelotonConstraintType(
@@ -1267,13 +1268,18 @@ typedef std::vector<DirectMap> DirectMapList;
 //===--------------------------------------------------------------------===//
 // Optimizer
 //===--------------------------------------------------------------------===//
+
 enum class PropertyType {
+  INVALID = INVALID_TYPE_ID,
   PREDICATE,
   COLUMNS,
   DISTINCT,
   SORT,
   LIMIT,
 };
+std::string PropertyTypeToString(PropertyType type);
+PropertyType StringToPropertyType(const std::string &str);
+std::ostream &operator<<(std::ostream &os, const PropertyType &type);
 
 namespace expression {
 class AbstractExpression;
@@ -1304,7 +1310,7 @@ typedef std::unordered_set<std::shared_ptr<expression::AbstractExpression>,
                            expression::ExprHasher,
                            expression::ExprEqualCmp> ExprSet;
 
-std::string PropertyTypeToString(PropertyType type);
+
 
 //===--------------------------------------------------------------------===//
 // Wire protocol typedefs
@@ -1316,5 +1322,20 @@ typedef unsigned char uchar;
 
 /* type for buffer of bytes */
 typedef std::vector<uchar> ByteBuf;
+
+//===--------------------------------------------------------------------===//
+// Packet Manager: ProcessResult
+//===--------------------------------------------------------------------===//
+enum class ProcessResult {
+  COMPLETE,
+  TERMINATE,
+  PROCESSING,
+  MORE_DATA_REQUIRED
+};
+
+enum class NetworkProtocolType {
+  POSTGRES_JDBC,
+  POSTGRES_PSQL,
+};
 
 }  // namespace peloton

@@ -38,18 +38,15 @@ class InsertPlan : public AbstractPlan {
       storage::DataTable *table,
       std::unique_ptr<const planner::ProjectInfo> &&project_info,
       oid_t bulk_insert_count = 1);
+
   // This constructor takes in a tuple
   explicit InsertPlan(storage::DataTable *table,
                       std::unique_ptr<storage::Tuple> &&tuple,
                       oid_t bulk_insert_count = 1);
-  // This constructor takes in a table name and a tuple
-  explicit InsertPlan(std::string table_name,
-                      std::unique_ptr<storage::Tuple> &&tuple,
-                      oid_t bulk_insert_count = 1);
 
   explicit InsertPlan(
-      storage::DataTable *table, std::vector<char *> *columns,
-      std::vector<std::vector<peloton::expression::AbstractExpression *> *> *
+      storage::DataTable *table, const std::vector<std::string> *columns,
+      const std::vector<std::vector<std::unique_ptr<expression::AbstractExpression>>> *
           insert_values);
 
   // Get a varlen pool (will construct the pool only if needed)
@@ -65,7 +62,7 @@ class InsertPlan : public AbstractPlan {
     return project_info_.get();
   }
 
-  oid_t GetBulkInsertCount() const { return bulk_insert_count; }
+  oid_t GetBulkInsertCount() const { return bulk_insert_count_; }
 
   const storage::Tuple *GetTuple(int tuple_idx) const {
     if (tuple_idx >= (int)tuples_.size()) {
@@ -100,7 +97,7 @@ class InsertPlan : public AbstractPlan {
   std::unique_ptr<std::vector<type::TypeId>> params_value_type_;
 
   /** @brief Number of times to insert */
-  oid_t bulk_insert_count;
+  oid_t bulk_insert_count_;
 
   // pool for variable length types
   std::unique_ptr<type::AbstractPool> pool_;

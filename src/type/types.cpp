@@ -285,6 +285,27 @@ type::TypeId StringToTypeId(const std::string& str) {
   return type::TypeId::INVALID;
 }
 
+std::string TypeIdArrayToString(const std::vector<type::TypeId> &types) {
+  std::string result = "";
+  for (auto type : types) {
+    if (result != "") result.append(",");
+    result.append(TypeIdToString(type));
+  }
+  return result;
+}
+
+// Get argument type vector from its string representation
+// e.g. "integer,boolean" --> vector{TypeId::INTEGER, TypeId::BOOLEAN}
+std::vector<type::TypeId> StringToTypeArray(const std::string &types) {
+  std::vector<type::TypeId> result;
+  std::istringstream stream(types);
+  std::string type;
+  while (getline(stream, type, ',')) {
+    result.push_back(StringToTypeId(type));
+  }
+  return result;
+}
+
 /** takes in 0-F, returns 0-15 */
 int32_t HexCharToInt(char c) {
   c = static_cast<char>(toupper(c));
@@ -338,6 +359,9 @@ std::string CreateTypeToString(CreateType type) {
     case CreateType::CONSTRAINT: {
       return "CONSTRAINT";
     }
+    case CreateType::TRIGGER: {
+      return "TRIGGER";
+    }
     default: {
       throw ConversionException(StringUtil::Format(
           "No string conversion for CreateType value '%d'",
@@ -359,6 +383,8 @@ CreateType StringToCreateType(const std::string& str) {
     return CreateType::INDEX;
   } else if (upper_str == "CONSTRAINT") {
     return CreateType::CONSTRAINT;
+  } else if (upper_str == "TRIGGER") {
+    return CreateType::TRIGGER;
   } else {
     throw ConversionException(StringUtil::Format(
         "No CreateType conversion from string '%s'", upper_str.c_str()));
@@ -370,50 +396,104 @@ std::ostream& operator<<(std::ostream& os, const CreateType& type) {
   return os;
 }
 
+std::string DropTypeToString(DropType type) {
+  switch (type) {
+    case DropType::INVALID: {
+      return "INVALID";
+    }
+    case DropType::DB: {
+      return "DB";
+    }
+    case DropType::TABLE: {
+      return "TABLE";
+    }
+    case DropType::INDEX: {
+      return "INDEX";
+    }
+    case DropType::CONSTRAINT: {
+      return "CONSTRAINT";
+    }
+    case DropType::TRIGGER: {
+      return "TRIGGER";
+    }
+    default: {
+      throw ConversionException(StringUtil::Format(
+          "No string conversion for DropType value '%d'",
+          static_cast<int>(type)));
+    }
+  }
+  return "INVALID";
+}
+
+DropType StringToDropType(const std::string& str) {
+  std::string upper_str = StringUtil::Upper(str);
+  if (upper_str == "INVALID") {
+    return DropType::INVALID;
+  } else if (upper_str == "DB") {
+    return DropType::DB;
+  } else if (upper_str == "TABLE") {
+    return DropType::TABLE;
+  } else if (upper_str == "INDEX") {
+    return DropType::INDEX;
+  } else if (upper_str == "CONSTRAINT") {
+    return DropType::CONSTRAINT;
+  } else if (upper_str == "TRIGGER") {
+    return DropType::TRIGGER;
+  } else {
+    throw ConversionException(StringUtil::Format(
+        "No DropType conversion from string '%s'", upper_str.c_str()));
+  }
+  return DropType::INVALID;
+}
+std::ostream& operator<<(std::ostream& os, const DropType& type) {
+  os << DropTypeToString(type);
+  return os;
+}
+
 //===--------------------------------------------------------------------===//
 // Statement - String Utilities
 //===--------------------------------------------------------------------===//
 
 std::string StatementTypeToString(StatementType type) {
   switch (type) {
+    case StatementType::INVALID: {
+      return "INVALID";
+    }
     case StatementType::SELECT: {
       return "SELECT";
-    }
-    case StatementType::ALTER: {
-      return "ALTER";
-    }
-    case StatementType::CREATE: {
-      return "CREATE";
-    }
-    case StatementType::DELETE: {
-      return "DELETE";
-    }
-    case StatementType::DROP: {
-      return "DROP";
-    }
-    case StatementType::EXECUTE: {
-      return "EXECUTE";
-    }
-    case StatementType::COPY: {
-      return "COPY";
     }
     case StatementType::INSERT: {
       return "INSERT";
     }
-    case StatementType::INVALID: {
-      return "INVALID";
+    case StatementType::UPDATE: {
+      return "UPDATE";
+    }
+    case StatementType::DELETE: {
+      return "DELETE";
+    }
+    case StatementType::CREATE: {
+      return "CREATE";
+    }
+    case StatementType::DROP: {
+      return "DROP";
     }
     case StatementType::PREPARE: {
       return "PREPARE";
     }
+    case StatementType::EXECUTE: {
+      return "EXECUTE";
+    }
     case StatementType::RENAME: {
       return "RENAME";
+    }
+    case StatementType::ALTER: {
+      return "ALTER";
     }
     case StatementType::TRANSACTION: {
       return "TRANSACTION";
     }
-    case StatementType::UPDATE: {
-      return "UPDATE";
+    case StatementType::COPY: {
+      return "COPY";
     }
     case StatementType::ANALYZE: {
       return "ANALYZE";
@@ -455,6 +535,8 @@ StatementType StringToStatementType(const std::string& str) {
     return StatementType::TRANSACTION;
   } else if (upper_str == "COPY") {
     return StatementType::COPY;
+  } else if (upper_str == "ANALYZE") {
+    return StatementType::ANALYZE;
   } else {
     throw ConversionException(StringUtil::Format(
         "No StatementType conversion from string '%s'", upper_str.c_str()));
@@ -604,60 +686,6 @@ std::string ExpressionTypeToString(ExpressionType type, bool short_str) {
     case ExpressionType::SELECT_SUBQUERY: {
       return ("SELECT_SUBQUERY");
     }
-    case ExpressionType::SUBSTR: {
-      return ("SUBSTR");
-    }
-    case ExpressionType::ASCII: {
-      return ("ASCII");
-    }
-    case ExpressionType::OCTET_LEN: {
-      return ("OCTET_LEN");
-    }
-    case ExpressionType::CHAR: {
-      return ("CHAR");
-    }
-    case ExpressionType::CHAR_LEN: {
-      return ("CHAR_LEN");
-    }
-    case ExpressionType::SPACE: {
-      return ("SPACE");
-    }
-    case ExpressionType::REPEAT: {
-      return ("REPEAT");
-    }
-    case ExpressionType::POSITION: {
-      return ("POSITION");
-    }
-    case ExpressionType::LEFT: {
-      return ("LEFT");
-    }
-    case ExpressionType::RIGHT: {
-      return ("RIGHT");
-    }
-    case ExpressionType::CONCAT: {
-      return ("CONCAT");
-    }
-    case ExpressionType::LTRIM: {
-      return ("LTRIM");
-    }
-    case ExpressionType::RTRIM: {
-      return ("RTRIM");
-    }
-    case ExpressionType::BTRIM: {
-      return ("BTRIM");
-    }
-    case ExpressionType::REPLACE: {
-      return ("REPLACE");
-    }
-    case ExpressionType::OVERLAY: {
-      return ("OVERLAY");
-    }
-    case ExpressionType::EXTRACT: {
-      return ("EXTRACT");
-    }
-    case ExpressionType::DATE_TO_TIMESTAMP: {
-      return ("DATE_TO_TIMESTAMP");
-    }
     case ExpressionType::STAR: {
       return ("STAR");
     }
@@ -791,42 +819,6 @@ ExpressionType StringToExpressionType(const std::string& str) {
     return ExpressionType::ROW_SUBQUERY;
   } else if (upper_str == "SELECT_SUBQUERY") {
     return ExpressionType::SELECT_SUBQUERY;
-  } else if (upper_str == "SUBSTR") {
-    return ExpressionType::SUBSTR;
-  } else if (upper_str == "ASCII") {
-    return ExpressionType::ASCII;
-  } else if (upper_str == "OCTET_LEN") {
-    return ExpressionType::OCTET_LEN;
-  } else if (upper_str == "CHAR") {
-    return ExpressionType::CHAR;
-  } else if (upper_str == "CHAR_LEN") {
-    return ExpressionType::CHAR_LEN;
-  } else if (upper_str == "SPACE") {
-    return ExpressionType::SPACE;
-  } else if (upper_str == "REPEAT") {
-    return ExpressionType::REPEAT;
-  } else if (upper_str == "POSITION") {
-    return ExpressionType::POSITION;
-  } else if (upper_str == "LEFT") {
-    return ExpressionType::LEFT;
-  } else if (upper_str == "RIGHT") {
-    return ExpressionType::RIGHT;
-  } else if (upper_str == "CONCAT") {
-    return ExpressionType::CONCAT;
-  } else if (upper_str == "LTRIM") {
-    return ExpressionType::LTRIM;
-  } else if (upper_str == "RTRIM") {
-    return ExpressionType::RTRIM;
-  } else if (upper_str == "BTRIM") {
-    return ExpressionType::BTRIM;
-  } else if (upper_str == "REPLACE") {
-    return ExpressionType::REPLACE;
-  } else if (upper_str == "OVERLAY") {
-    return ExpressionType::OVERLAY;
-  } else if (upper_str == "EXTRACT") {
-    return ExpressionType::EXTRACT;
-  } else if (upper_str == "DATE_TO_TIMESTAMP") {
-    return ExpressionType::DATE_TO_TIMESTAMP;
   } else if (upper_str == "STAR") {
     return ExpressionType::STAR;
   } else if (upper_str == "PLACEHOLDER") {
@@ -1714,6 +1706,9 @@ std::string ResultTypeToString(ResultType type) {
     case ResultType::UNKNOWN: {
       return ("UNKNOWN");
     }
+    case ResultType::QUEUING: {
+      return ("QUEUING");
+    }
     default: {
       throw ConversionException(
           StringUtil::Format("No string conversion for ResultType value '%d'",
@@ -1737,6 +1732,8 @@ ResultType StringToResultType(const std::string& str) {
     return ResultType::NOOP;
   } else if (upper_str == "UNKNOWN") {
     return ResultType::UNKNOWN;
+  } else if (upper_str == "QUEUING") {
+    return ResultType::QUEUING;
   } else {
     throw ConversionException(StringUtil::Format(
         "No ResultType conversion from string '%s'", upper_str.c_str()));
@@ -2684,23 +2681,61 @@ std::ostream& operator<<(std::ostream& os, const GCVersionType& type) {
 //===--------------------------------------------------------------------===//
 // Optimizer
 //===--------------------------------------------------------------------===//
+
 std::string PropertyTypeToString(PropertyType type) {
   switch (type) {
-    case PropertyType::SORT:
-      return "SORT";
-    case PropertyType::COLUMNS:
-      return "COLUMNS";
-    case PropertyType::PREDICATE:
+    case PropertyType::INVALID: {
+      return "INVALID";
+    }
+    case PropertyType::PREDICATE: {
       return "PREDICATE";
-    case PropertyType::DISTINCT:
+    }
+    case PropertyType::COLUMNS: {
+      return "COLUMNS";
+    }
+    case PropertyType::DISTINCT: {
       return "DISTINCT";
-    case PropertyType::LIMIT:
+    }
+    case PropertyType::SORT: {
+      return "SORT";
+    }
+    case PropertyType::LIMIT: {
       return "LIMIT";
-    default:
-      throw ConversionException(StringUtil::Format("No string conversion for PropertyType value '%d'",
-                                                   static_cast<int>(type)));
+    }
+    default: {
+      throw ConversionException(StringUtil::Format(
+          "No string conversion for PropertyType value '%d'",
+          static_cast<int>(type)));
+    }
   }
   return "INVALID";
+}
+
+PropertyType StringToPropertyType(const std::string& str) {
+  std::string upper_str = StringUtil::Upper(str);
+  if (upper_str == "INVALID") {
+    return PropertyType::INVALID;
+  } else if (upper_str == "PREDICATE") {
+    return PropertyType::PREDICATE;
+  } else if (upper_str == "COLUMNS") {
+    return PropertyType::COLUMNS;
+  } else if (upper_str == "DISTINCT") {
+    return PropertyType::DISTINCT;
+  } else if (upper_str == "SORT") {
+    return PropertyType::SORT;
+  } else if (upper_str == "LIMIT") {
+    return PropertyType::LIMIT;
+  } else {
+    throw ConversionException(
+        StringUtil::Format("No PropertyType conversion from string '%s'",
+                           upper_str.c_str()));
+  }
+  return PropertyType::INVALID;
+}
+
+std::ostream& operator<<(std::ostream& os, const PropertyType& type) {
+  os << PropertyTypeToString(type);
+  return os;
 }
 
 //===--------------------------------------------------------------------===//

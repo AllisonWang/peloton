@@ -26,7 +26,7 @@
 #include "expression/function_expression.h"
 #include "expression/operator_expression.h"
 #include "expression/parameter_value_expression.h"
-#include "expression/string_functions.h"
+#include "include/function/string_functions.h"
 #include "expression/tuple_value_expression.h"
 #include "index/index.h"
 
@@ -516,14 +516,17 @@ class ExpressionUtil {
       if (iter != expr_map.end()) aggr_expr->SetValueIdx(iter->second);
     } else if (expr->GetExpressionType() == ExpressionType::FUNCTION) {
       auto func_expr = (expression::FunctionExpression *)expr;
+      std::vector<type::TypeId> argtypes;
+      for (size_t i = 0; i < children_size; i++)
+        argtypes.push_back(expr->GetChild(i)->GetValueType());
       // Check and set the function ptr
       auto catalog = catalog::Catalog::GetInstance();
       const catalog::FunctionData &func_data =
-          catalog->GetFunction(func_expr->func_name_);
+          catalog->GetFunction(func_expr->GetFuncName(), argtypes);
       LOG_INFO("Function %s found in the catalog",
                func_data.func_name_.c_str());
       LOG_INFO("Argument num: %ld", func_data.argument_types_.size());
-      func_expr->SetFunctionExpressionParameters(func_data.func_ptr_,
+      func_expr->SetFunctionExpressionParameters(func_data.func_,
                                                  func_data.return_type_,
                                                  func_data.argument_types_);
     } else if (expr->GetExpressionType() ==
@@ -766,10 +769,14 @@ class ExpressionUtil {
     // if the expression is a function, do a lookup and make sure it exists
     if (expr->GetExpressionType() == ExpressionType::FUNCTION) {
       auto func_expr = (expression::FunctionExpression *)expr;
+      std::vector<type::TypeId> argtypes;
+      size_t children_size = expr->GetChildrenSize();
+      for (size_t i = 0; i < children_size; i++)
+        argtypes.push_back(expr->GetChild(i)->GetValueType());
       auto catalog = catalog::Catalog::GetInstance();
       const catalog::FunctionData &func_data =
-          catalog->GetFunction(func_expr->func_name_);
-      func_expr->SetFunctionExpressionParameters(func_data.func_ptr_,
+          catalog->GetFunction(func_expr->GetFuncName(), argtypes);
+      func_expr->SetFunctionExpressionParameters(func_data.func_,
                                                  func_data.return_type_,
                                                  func_data.argument_types_);
     }

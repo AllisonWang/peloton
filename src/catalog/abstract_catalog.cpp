@@ -77,7 +77,7 @@ AbstractCatalog::AbstractCatalog(const std::string &catalog_table_ddl,
     catalog_table_ = storage::StorageManager::GetInstance()->GetTableWithOid(
         CATALOG_DATABASE_OID, catalog_table_object->table_oid);
   } catch (CatalogException &e) {
-    LOG_TRACE("Can't find table %d! Return false", catalog_table_oid);
+    LOG_TRACE("Can't find table %d! Return false", catalog_table_object->table_oid);
   }
 }
 
@@ -161,7 +161,7 @@ std::unique_ptr<std::vector<std::unique_ptr<executor::LogicalTile>>>
 AbstractCatalog::GetResultWithIndexScan(std::vector<oid_t> column_offsets,
                                         oid_t index_offset,
                                         std::vector<type::Value> values,
-                                        concurrency::Transaction *txn) {
+                                        concurrency::Transaction *txn) const {
   if (txn == nullptr) throw CatalogException("Scan table requires transaction");
 
   // Index scan

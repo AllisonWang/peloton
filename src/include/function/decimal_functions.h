@@ -4,12 +4,11 @@
 //
 // decimal_functions.h
 //
-// Identification: src/include/expression/decimal_functions.h
+// Identification: src/include/function/decimal_functions.h
 //
-// Copyright (c) 2015-17, Carnegie Mellon University Database Group
+// Copyright (c) 2015-2017, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
-
 
 #pragma once
 
@@ -18,10 +17,12 @@
 #include "type/value.h"
 
 namespace peloton {
-namespace expression {
+namespace function {
+
 class DecimalFunctions {
  public:
   static type::Value Sqrt(const std::vector<type::Value>& args);
 };
-}  // namespace expression
+
+}  // namespace function
 }  // namespace peloton

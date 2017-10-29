@@ -4,25 +4,26 @@
 //
 // date_functions.cpp
 //
-// Identification: /peloton/src/expression/date_functions.cpp
+// Identification: src/function/date_functions.cpp
 //
 // Copyright (c) 2015-2017, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
-#include "expression/date_functions.h"
+
+
+#include "function/date_functions.h"
 
 #include <date/date.h>
 #include <inttypes.h>
 #include <date/iso_week.h>
 
 #include "common/logger.h"
-#include "expression/abstract_expression.h"
 #include "type/types.h"
 #include "type/value.h"
 #include "type/value_factory.h"
 
 namespace peloton {
-namespace expression {
+namespace function {
 
 // The arguments are contained in the args vector
 // (1) The first argument is the part of the date to extract
@@ -30,7 +31,7 @@ namespace expression {
 // (2) The second argument is the timestamp to extract the part from
 // @return The Value returned should be a type::DecimalValue that is
 // constructed using type::ValueFactory
-type::Value DateFunctions::Extract(const std::vector<type::Value>& args) {
+type::Value DateFunctions::Extract(const std::vector<type::Value> &args) {
   DatePartType date_part = args[0].GetAs<DatePartType>();
   uint64_t timestamp = args[1].GetAs<uint64_t>();
   type::Value result;

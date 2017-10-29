@@ -15,8 +15,7 @@
 #include <mutex>
 
 #include "catalog/catalog_defaults.h"
-#include "catalog/database_catalog.h"
-#include "catalog/table_catalog.h"
+#include "function/functions.h"
 
 namespace peloton {
 
@@ -24,15 +23,15 @@ namespace catalog {
 class Schema;
 class DatabaseCatalogObject;
 class TableCatalogObject;
-}
+}  // namespace catalog
 
 namespace concurrency {
 class Transaction;
-}
+}  // namespace concurrency
 
 namespace index {
 class Index;
-}
+}  // namespace index
 
 namespace storage {
 class Database;
@@ -60,19 +59,19 @@ struct FunctionData {
   std::string func_name_;
   // type of input arguments
   std::vector<type::TypeId> argument_types_;
-  // funtion's return type
+  // function's return type
   type::TypeId return_type_;
-  // pointer to the funtion
-  type::Value (*func_ptr_)(const std::vector<type::Value> &);
+  // pointer to the function
+  function::BuiltInFuncType func_;
 };
 
 class Catalog {
  public:
   // Global Singleton
-  static Catalog *GetInstance(void);
+  static Catalog *GetInstance();
 
-  // Bootstrap addtional catalogs, only used in system initialization phase
-  void Bootstrap(void);
+  // Bootstrap additional catalogs, only used in system initialization phase
+  void Bootstrap();
 
   // Deconstruct the catalog database when destroying the catalog.
   ~Catalog();
@@ -167,8 +166,9 @@ class Catalog {
       concurrency::Transaction *txn);
   std::shared_ptr<TableCatalogObject> GetTableObject(
       oid_t database_oid, oid_t table_oid, concurrency::Transaction *txn);
+
   //===--------------------------------------------------------------------===//
-  // DEPRECATED FUNCTIONs
+  // DEPRECATED FUNCTIONS
   //===--------------------------------------------------------------------===//
   /*
    * We're working right now to remove metadata from storage level and eliminate
@@ -179,31 +179,31 @@ class Catalog {
   void AddDatabase(storage::Database *database);
 
   //===--------------------------------------------------------------------===//
-  // USER DEFINE FUNCTION
+  // BUILTIN FUNCTION
   //===--------------------------------------------------------------------===//
+
+  void InitializeLanguages();
 
   void InitializeFunctions();
 
-  void AddFunction(const std::string &name,
-                   const std::vector<type::TypeId> &argument_types,
-                   const type::TypeId return_type,
-                   type::Value (*func_ptr)(const std::vector<type::Value> &));
+  void AddBuiltinFunction(const std::string &name,
+                          const std::vector<type::TypeId> &argument_types,
+                          const type::TypeId return_type, oid_t prolang,
+                          const std::string &func_name,
+                          function::BuiltInFuncType func,
+                          concurrency::Transaction *txn);
 
-  const FunctionData GetFunction(const std::string &name);
-
-  void RemoveFunction(const std::string &name);
+  const FunctionData GetFunction(
+      const std::string &name, const std::vector<type::TypeId> &argument_types);
 
  private:
   Catalog();
-
-  // Map of function names to data about functions (number of arguments,
-  // function ptr, return type)
-  std::unordered_map<std::string, FunctionData> functions_;
 
   // The pool for new varlen tuple fields
   std::unique_ptr<type::AbstractPool> pool_;
 
   std::mutex catalog_mutex;
 };
+
 }  // namespace catalog
 }  // namespace peloton

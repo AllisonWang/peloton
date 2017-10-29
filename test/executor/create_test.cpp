@@ -39,6 +39,43 @@ namespace test {
 
 class CreateTests : public PelotonTest {};
 
+TEST_F(CreateTests, CreatingDB) {
+    // Bootstrap
+    auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+    auto txn = txn_manager.BeginTransaction();
+  
+    // Create plans with database name set.
+    planner::CreatePlan node("PelotonDB", CreateType::DB);
+
+    std::unique_ptr<executor::ExecutorContext> context(
+        new executor::ExecutorContext(txn));
+    // Create executer
+    executor::CreateExecutor executor(&node, context.get());
+  
+    executor.Init();
+    executor.Execute();
+    // Check if the database exists in the same txn
+    EXPECT_EQ(0, catalog::Catalog::GetInstance()
+    ->GetDatabaseObject("PelotonDB", txn)
+    ->database_name
+    .compare("PelotonDB"));
+
+    txn_manager.CommitTransaction(txn);
+  
+    // start a new txn
+    txn = txn_manager.BeginTransaction();
+    // Check if the database exists in a new txn
+    EXPECT_EQ(0, catalog::Catalog::GetInstance()
+    ->GetDatabaseObject("PelotonDB", txn)
+    ->database_name
+    .compare("PelotonDB"));
+  
+    // free the database just created  
+    catalog::Catalog::GetInstance()->DropDatabaseWithName("PelotonDB", txn);
+
+    txn_manager.CommitTransaction(txn);
+  }
+
 TEST_F(CreateTests, CreatingTable) {
   // Bootstrap
   auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
@@ -383,7 +420,7 @@ TEST_F(CreateTests, CreatingTriggerInCatalog) {
   // check whether the trigger catalog table contains this new trigger
   auto table_object = catalog::Catalog::GetInstance()->GetTableObject(
       DEFAULT_DB_NAME, "accounts", txn);
-  auto trigger_list = catalog::TriggerCatalog::GetInstance()->GetTriggersByType(
+  auto trigger_list = catalog::TriggerCatalog::GetInstance().GetTriggersByType(
       table_object->table_oid,
       (TRIGGER_TYPE_ROW | TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_UPDATE), txn);
 
