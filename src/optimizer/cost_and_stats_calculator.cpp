@@ -41,13 +41,25 @@ namespace peloton {
 																			 std::shared_ptr<TableStats> &output_stats, bool enable_index) {
 			if (expr->GetChild(0)->GetExpressionType() == ExpressionType::VALUE_TUPLE ||
 					expr->GetChild(1)->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
-				LOG_DEBUG("tuple value expression");
+
+        int right_index = expr->GetChild(0)->GetExpressionType() == ExpressionType::VALUE_TUPLE?1:0;
 				auto left_expr = reinterpret_cast<const expression::TupleValueExpression *>(
-					expr->GetChild(0)->GetExpressionType() == ExpressionType::VALUE_TUPLE? expr->GetChild(0):expr->GetChild(1));
-				int right_index = expr->GetChild(0)->GetExpressionType() == ExpressionType::VALUE_TUPLE?1:0;
+					right_index == 1? expr->GetChild(0):expr->GetChild(1));
+        auto expr_type = expr->GetExpressionType();
+        if (right_index == 0) {
+          if (expr_type == ExpressionType::COMPARE_LESSTHANOREQUALTO) {
+            expr_type = ExpressionType::COMPARE_GREATERTHANOREQUALTO;
+          } else if (expr_type == ExpressionType::COMPARE_LESSTHAN) {
+            expr_type = ExpressionType::COMPARE_GREATERTHAN;
+          } else if (expr_type == ExpressionType::COMPARE_GREATERTHANOREQUALTO) {
+            expr_type = ExpressionType::COMPARE_LESSTHANOREQUALTO;
+          } else if (expr_type == ExpressionType::COMPARE_GREATERTHAN) {
+            expr_type = ExpressionType::COMPARE_LESSTHAN;
+          }
+        }
 
 				auto column_id = left_expr->GetColumnId();
-				auto expr_type = expr->GetExpressionType();
+
 				type::Value value;
 				if (expr->GetChild(right_index)->GetExpressionType() == ExpressionType::VALUE_CONSTANT) {
 					value = reinterpret_cast<expression::ConstantValueExpression*>(
@@ -61,7 +73,6 @@ namespace peloton {
         if (enable_index) {
           return Cost::SingleConditionIndexScanCost(input_stats, condition, output_stats);
         } else {
-					LOG_DEBUG("condition %s", condition.value.ToString().c_str());
           return Cost::SingleConditionSeqScanCost(input_stats, condition, output_stats);
         }
 
@@ -72,7 +83,7 @@ namespace peloton {
 				double right_cost = updateMultipleConjuctionStats(input_stats, expr->GetChild(1), rhs, enable_index);
 
         Cost::CombineConjunctionStats(lhs, rhs, input_stats->num_rows, expr->GetExpressionType(), output_stats);
-				LOG_DEBUG("output row %zu", output_stats->num_rows);
+
         if (enable_index) {
           return left_cost+right_cost;
         } else {
@@ -123,7 +134,6 @@ namespace peloton {
 				output_stats_.reset(output_stats.get());
 				return;
 			}
-			LOG_DEBUG("predicate not null");
 			std::vector<oid_t> key_column_ids;
 			std::vector<ExpressionType> expr_types;
 			std::vector<type::Value> values;
