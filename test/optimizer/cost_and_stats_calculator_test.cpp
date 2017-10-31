@@ -79,7 +79,8 @@ TEST_F(CostAndStatsCalculatorTests, NoConditionSeqScanTest) {
 	op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
 	txn_manager.CommitTransaction(txn);
 	EXPECT_EQ(calculator.output_cost_, 1);
-	LOG_INFO("output stat num row: %zd\n", ((TableStats*)calculator.output_stats_.release())->num_rows);
+  LOG_INFO("output stat num row: %zu\n",
+             (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
 
 	// Free the database
@@ -131,7 +132,8 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionSeqScanTest) {
 	op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
 	txn_manager.CommitTransaction(txn);
 	EXPECT_EQ(calculator.output_cost_, 1);
-	LOG_INFO("output stat num row: %zd\n", ((TableStats*)calculator.output_stats_.release())->num_rows);
+	LOG_INFO("output stat num row: %zu\n",
+						 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
 
 	// Free the database
@@ -184,7 +186,8 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionIndexScanTest) {
 	op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
 	txn_manager.CommitTransaction(txn);
 	EXPECT_EQ(((int)(calculator.output_cost_ * 100 + .5) / 100.0), 0.04);
-	LOG_INFO("output stat num row: %zd\n", ((TableStats*)calculator.output_stats_.release())->num_rows);
+	LOG_INFO("output stat num row: %zu\n",
+						 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
 
 	// Free the database
@@ -252,7 +255,8 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionSeqScanTest) {
   op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
   txn_manager.CommitTransaction(txn);
   EXPECT_EQ(calculator.output_cost_, 1.0);
-  LOG_INFO("output stat num row: %zd\n", ((TableStats*)calculator.output_stats_.release())->num_rows);
+	LOG_INFO("output stat num row: %zu\n",
+						 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
 
   // Free the database
@@ -331,7 +335,8 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionIndexScanTest) {
   op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
   txn_manager.CommitTransaction(txn);
   EXPECT_EQ(((int)(calculator.output_cost_ * 1000 + .5)/ 1000.0), 0.119);
-  LOG_INFO("output stat num row: %zu\n", ((TableStats*)calculator.output_stats_.release())->num_rows);
+  LOG_INFO("output stat num row: %zu\n",
+					 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
   // Free the database
   txn = txn_manager.BeginTransaction();
