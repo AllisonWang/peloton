@@ -45,7 +45,7 @@ void CreateAndLoadTable() {
 }
 
 TEST_F(CostAndStatsCalculatorTests, NoConditionSeqScanTest) {
-	LOG_DEBUG("start test");
+
 	auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
 	auto txn = txn_manager.BeginTransaction();
 	catalog::Catalog::GetInstance()->CreateDatabase(DEFAULT_DB_NAME, txn);
@@ -54,17 +54,16 @@ TEST_F(CostAndStatsCalculatorTests, NoConditionSeqScanTest) {
 	CreateAndLoadTable();
 	LOG_DEBUG("create database succeed");
 
-		// Collect stats
+	// Collect stats
 	TestingSQLUtil::ExecuteSQLQuery("ANALYZE test");
-
 
 	txn = txn_manager.BeginTransaction();
 	auto catalog = catalog::Catalog::GetInstance();
 	auto table_ = catalog->GetTableWithName(DEFAULT_DB_NAME, "test", txn);
+	txn_manager.CommitTransaction(txn);
 	Operator op = PhysicalSeqScan::make(table_, "", false);
 	ColumnManager manager;
 	CostAndStatsCalculator calculator(manager);
-
 
   std::vector<std::shared_ptr<expression::AbstractExpression>> cols;
 
@@ -72,25 +71,25 @@ TEST_F(CostAndStatsCalculatorTests, NoConditionSeqScanTest) {
 			type::TypeId::DECIMAL, 0, 2));
 
   cols.push_back(tv_expr);
-  PropertySet *set = new PropertySet;
+	PropertySet *set = new PropertySet;
   set->AddProperty(std::shared_ptr<PropertyColumns>(new PropertyColumns(cols)));
 
   calculator.output_properties_ = set;
 	op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
-	txn_manager.CommitTransaction(txn);
+
 	EXPECT_EQ(calculator.output_cost_, 1);
   LOG_INFO("output stat num row: %zu\n",
              (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
-
 	// Free the database
+	delete set;
 	txn = txn_manager.BeginTransaction();
 	catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
 	txn_manager.CommitTransaction(txn);
 }
 
 TEST_F(CostAndStatsCalculatorTests, SingleConditionSeqScanTest) {
-	LOG_DEBUG("start test");
+
 	auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
 	auto txn = txn_manager.BeginTransaction();
 	catalog::Catalog::GetInstance()->CreateDatabase(DEFAULT_DB_NAME, txn);
@@ -106,6 +105,7 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionSeqScanTest) {
 	txn = txn_manager.BeginTransaction();
 	auto catalog = catalog::Catalog::GetInstance();
 	auto table_ = catalog->GetTableWithName(DEFAULT_DB_NAME, "test", txn);
+	txn_manager.CommitTransaction(txn);
 	Operator op = PhysicalSeqScan::make(table_, "", false);
 	ColumnManager manager;
 	CostAndStatsCalculator calculator(manager);
@@ -130,20 +130,20 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionSeqScanTest) {
 
 	calculator.output_properties_ = set;
 	op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
-	txn_manager.CommitTransaction(txn);
+
 	EXPECT_EQ(calculator.output_cost_, 1);
 	LOG_INFO("output stat num row: %zu\n",
 						 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
-
 	// Free the database
+	delete set;
 	txn = txn_manager.BeginTransaction();
 	catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
 	txn_manager.CommitTransaction(txn);
 }
 
 TEST_F(CostAndStatsCalculatorTests, SingleConditionIndexScanTest) {
-	LOG_DEBUG("start test");
+
 	auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
 	auto txn = txn_manager.BeginTransaction();
 	catalog::Catalog::GetInstance()->CreateDatabase(DEFAULT_DB_NAME, txn);
@@ -159,6 +159,7 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionIndexScanTest) {
 	txn = txn_manager.BeginTransaction();
 	auto catalog = catalog::Catalog::GetInstance();
 	auto table_ = catalog->GetTableWithName(DEFAULT_DB_NAME, "test", txn);
+	txn_manager.CommitTransaction(txn);
 	Operator op = PhysicalIndexScan::make(table_, "", false);
 	ColumnManager manager;
 	CostAndStatsCalculator calculator(manager);
@@ -184,13 +185,13 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionIndexScanTest) {
 
 	calculator.output_properties_ = set;
 	op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
-	txn_manager.CommitTransaction(txn);
+
 	EXPECT_EQ(((int)(calculator.output_cost_ * 100 + .5) / 100.0), 0.04);
 	LOG_INFO("output stat num row: %zu\n",
 						 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
-
 	// Free the database
+	delete set;
 	txn = txn_manager.BeginTransaction();
 	catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
 	txn_manager.CommitTransaction(txn);
@@ -198,7 +199,7 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionIndexScanTest) {
 
 
 TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionSeqScanTest) {
-  LOG_DEBUG("start test");
+
   auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
   auto txn = txn_manager.BeginTransaction();
   catalog::Catalog::GetInstance()->CreateDatabase(DEFAULT_DB_NAME, txn);
@@ -210,14 +211,14 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionSeqScanTest) {
   // Collect stats
   TestingSQLUtil::ExecuteSQLQuery("ANALYZE test");
 
-
   txn = txn_manager.BeginTransaction();
   auto catalog = catalog::Catalog::GetInstance();
   auto table_ = catalog->GetTableWithName(DEFAULT_DB_NAME, "test", txn);
+	txn_manager.CommitTransaction(txn);
+
   Operator op = PhysicalSeqScan::make(table_, "", false);
   ColumnManager manager;
   CostAndStatsCalculator calculator(manager);
-
 
   std::vector<std::shared_ptr<expression::AbstractExpression>> cols;
 
@@ -249,17 +250,14 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionSeqScanTest) {
     ExpressionType::CONJUNCTION_AND, expr3, expr6);
   set->AddProperty(std::make_shared<PropertyPredicate>(predicate));
 
-  set->AddProperty(std::make_shared<PropertyPredicate>(predicate));
-
   calculator.output_properties_ = set;
   op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
-  txn_manager.CommitTransaction(txn);
   EXPECT_EQ(calculator.output_cost_, 1.0);
 	LOG_INFO("output stat num row: %zu\n",
 						 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
-
   // Free the database
+	delete set;
   txn = txn_manager.BeginTransaction();
   catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
   txn_manager.CommitTransaction(txn);
@@ -282,6 +280,7 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionIndexScanTest) {
   txn = txn_manager.BeginTransaction();
   auto catalog = catalog::Catalog::GetInstance();
   auto table_ = catalog->GetTableWithName(DEFAULT_DB_NAME, "test", txn);
+	txn_manager.CommitTransaction(txn);
   Operator op = PhysicalIndexScan::make(table_, "", false);
   ColumnManager manager;
   CostAndStatsCalculator calculator(manager);
@@ -329,16 +328,14 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionIndexScanTest) {
     ExpressionType::CONJUNCTION_AND, expr10, expr9);
   set->AddProperty(std::make_shared<PropertyPredicate>(predicate));
 
-  set->AddProperty(std::make_shared<PropertyPredicate>(predicate));
-
   calculator.output_properties_ = set;
   op.Accept(dynamic_cast<OperatorVisitor*>(&calculator));
-  txn_manager.CommitTransaction(txn);
   EXPECT_EQ(((int)(calculator.output_cost_ * 1000 + .5)/ 1000.0), 0.119);
   LOG_INFO("output stat num row: %zu\n",
 					 (std::dynamic_pointer_cast<TableStats>(calculator.output_stats_))->num_rows);
 
   // Free the database
+	delete set;
   txn = txn_manager.BeginTransaction();
   catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
   txn_manager.CommitTransaction(txn);
