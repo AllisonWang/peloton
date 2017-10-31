@@ -25,28 +25,32 @@ namespace peloton {
 		// Helper functions
 		//===----------------------------------------------------------------------===//
 		// Generate output stats based on the input stats and the property column
-		void generateOutputStat(std::shared_ptr<TableStats> input_table_stats,
-														UNUSED_ATTRIBUTE const PropertyColumns* columns_prop,
-														std::shared_ptr<TableStats>& output_table_stats) {
-      LOG_TRACE("generate output stat");
-			output_table_stats->num_rows = input_table_stats->num_rows;
-//      auto output = std::make_shared<TableStats>();
-      LOG_TRACE("column prop size %zu", columns_prop->GetSize());
-			for (size_t i = 0; i < columns_prop->GetSize(); i++) {
-        LOG_TRACE("expression type %s", ExpressionTypeToString(columns_prop->GetColumn(i)->GetExpressionType()).c_str());
-        auto expr = columns_prop->GetColumn(i);
-        if (expr->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
-//          oid_t column_id = (oid_t)(std::dynamic_pointer_cast<expression::TupleValueExpression>(expr))->GetColumnId();
-          auto column_name = (std::dynamic_pointer_cast<expression::TupleValueExpression>(expr))->GetColumnName();
-          LOG_TRACE("column name %s", column_name.c_str());
-//          LOG_TRACE("column id %d", column_id);
-          auto column_stat = input_table_stats->GetColumnStats(column_name);
-          if (column_stat != nullptr) {
-            output_table_stats->AddColumnStats(column_stat);
-          };
-        }
+		std::shared_ptr<TableStats> generateOutputStat(std::shared_ptr<TableStats>& input_table_stats,
+														const PropertyColumns* columns_prop) {
+			std::vector<std::shared_ptr<ColumnStats>> output_column_stats;
+			if (columns_prop->HasStarExpression()) {
+				for (size_t i = 0; i < input_table_stats->GetColumnCount(); i++) {
+					output_column_stats.push_back(input_table_stats->GetColumnStats((oid_t)i));
+				}
+			} else {
+				for (size_t i = 0; i < columns_prop->GetSize(); i++) {
 
+					auto expr = columns_prop->GetColumn(i);
+					if (expr->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
+//          oid_t column_id = (oid_t)(std::dynamic_pointer_cast<expression::TupleValueExpression>(expr))->GetColumnId();
+						auto column_name = (std::dynamic_pointer_cast<expression::TupleValueExpression>(expr))->GetColumnName();
+						auto column_stat = input_table_stats->GetColumnStats(column_name);
+						if (column_stat != nullptr) {
+							output_column_stats.push_back(column_stat);
+						};
+					} else {
+
+          }
+
+				}
 			}
+			auto output_table_stats = std::make_shared<TableStats>(input_table_stats->num_rows, output_column_stats);
+			return output_table_stats;
 		}
 
 		// Update output stats num_rows for conjunctions based on predicate
@@ -107,6 +111,14 @@ namespace peloton {
 
 		}
 
+    double getCostOfChildren(std::vector<double>& child_costs) {
+      double cost = 0;
+      for (size_t i = 0; i < child_costs.size(); i++) {
+        cost += child_costs[i];
+      }
+      return cost;
+    }
+
 
 		void CostAndStatsCalculator::CalculateCostAndStats(
 			std::shared_ptr<GroupExpression> gexpr,
@@ -123,8 +135,6 @@ namespace peloton {
 			gexpr->Op().Accept(this);
 		}
 
-
-
 		void CostAndStatsCalculator::Visit(const DummyScan *) {
 			// TODO: Replace with more accurate cost
 			output_stats_.reset(new Stats(nullptr));
@@ -134,35 +144,31 @@ namespace peloton {
 		void CostAndStatsCalculator::Visit(const PhysicalSeqScan * op) {
 			// TODO : Replace with more accurate cost
 			// retrieve table_stats from catalog by db_id and table_id
+      output_cost_ = getCostOfChildren(child_costs_);
+
 			auto stats_storage = StatsStorage::GetInstance();
 			auto table_stats =
 				stats_storage->GetTableStats(op->table_->GetDatabaseOid(), op->table_->GetOid());
 
-			auto output_stats = std::make_shared<TableStats>();
-			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
-
-			generateOutputStat(table_stats, property_, output_stats);
-
       if (table_stats->GetColumnCount() == 0) {
-				output_stats_.reset(new Stats(nullptr));
+        output_stats_.reset(new Stats(nullptr));
         output_cost_ = 1;
         return;
       }
+
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats, property_);
 			auto predicate_prop =
 				output_properties_->GetPropertyOfType(PropertyType::PREDICATE)
 					->As<PropertyPredicate>();
 			if (predicate_prop == nullptr) {
-				output_cost_ = Cost::NoConditionSeqScanCost(table_stats);
+				output_cost_ += Cost::NoConditionSeqScanCost(table_stats);
 				output_stats_ = output_stats;
 				return;
 			}
-			std::vector<oid_t> key_column_ids;
-			std::vector<ExpressionType> expr_types;
-			std::vector<type::Value> values;
 
 			expression::AbstractExpression *predicate = predicate_prop->GetPredicate();
-			output_cost_ = updateMultipleConjuctionStats(table_stats, predicate, output_stats, false);
-      LOG_INFO("seq scan cost %f", output_cost_);
+			output_cost_ += updateMultipleConjuctionStats(table_stats, predicate, output_stats, false);
 			output_stats_ = output_stats;
 		};
 
@@ -170,56 +176,50 @@ namespace peloton {
 			// Simple cost function
 			// indexSearchable ? Index : SeqScan
 			// TODO : Replace with more accurate cost
+      output_cost_ = getCostOfChildren(child_costs_);
 			auto predicate_prop =
 				output_properties_->GetPropertyOfType(PropertyType::PREDICATE)
 					->As<PropertyPredicate>();
 
-			if (predicate_prop == nullptr) {
-				output_cost_ = 2;
-				return;
-			}
+      auto stats_storage = StatsStorage::GetInstance();
+      auto table_stats = std::dynamic_pointer_cast<TableStats>(
+        stats_storage->GetTableStats(op->table_->GetDatabaseOid(), op->table_->GetOid()));
 
-			std::vector<oid_t> key_column_ids;
-			std::vector<ExpressionType> expr_types;
-			std::vector<type::Value> values;
-			oid_t index_id = 0;
+      std::vector<oid_t> key_column_ids;
+      std::vector<ExpressionType> expr_types;
+      std::vector<type::Value> values;
+      oid_t index_id = 0;
 
-			expression::AbstractExpression *predicate = predicate_prop->GetPredicate();
-			bool index_searchable = util::CheckIndexSearchable(op->table_, predicate, key_column_ids,
-																												 expr_types, values, index_id);
-			auto stats_storage = StatsStorage::GetInstance();
-			auto table_stats = std::dynamic_pointer_cast<TableStats>(
-				stats_storage->GetTableStats(op->table_->GetDatabaseOid(), op->table_->GetOid()));
+      expression::AbstractExpression *predicate = predicate_prop == nullptr? nullptr:predicate_prop->GetPredicate();
+      bool index_searchable = predicate == nullptr? false :
+															util::CheckIndexSearchable(
+																op->table_, predicate, key_column_ids, expr_types, values, index_id);
+      if (table_stats->GetColumnCount() == 0 || predicate == nullptr) {
+        output_stats_.reset(new Stats(nullptr));
+        if (index_searchable) {
+          output_cost_ = 0;
+        } else {
+          output_cost_ = 2;
+        }
+        return;
+      }
 
-			if (table_stats->GetColumnCount() == 0) {
-				output_stats_.reset(new Stats(nullptr));
-				if (index_searchable) {
-					output_cost_ = 0;
-				} else {
-					output_cost_ = 2;
-				}
-				return;
-			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats, output_properties_
-				->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(), output_stats);
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats, property_);
 
-			LOG_DEBUG("size of index columns %d", *op->table_->GetIndexColumns().at(0).begin());
+      output_cost_ = getCostOfChildren(child_costs_);
 			if (index_searchable) {
-				output_cost_ = updateMultipleConjuctionStats(table_stats, predicate, output_stats, true);
-
+				output_cost_ += updateMultipleConjuctionStats(table_stats, predicate, output_stats, true);
 			} else {
-
-				output_cost_ = updateMultipleConjuctionStats(table_stats, predicate, output_stats, false);
-
+				output_cost_ += updateMultipleConjuctionStats(table_stats, predicate, output_stats, false);
 			}
-      LOG_INFO("index scan cost %f", output_cost_);
 			output_stats_ = output_stats;
 		}
 
 
 		void CostAndStatsCalculator::Visit(const PhysicalProject *) {
 			// TODO: Replace with more accurate cost
+      output_cost_ = getCostOfChildren(child_costs_);
 			PL_ASSERT(child_stats_.size() == 1);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
@@ -227,51 +227,65 @@ namespace peloton {
 				output_cost_ = 0;
 				return;
 			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats_ptr, output_properties_
-				->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(), output_stats);
-			output_cost_ = Cost::ProjectCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)), std::vector <oid_t>(),
-																			 output_stats);
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats_ptr, property_);
+
+			output_cost_ += Cost::ProjectCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)),
+                                        std::vector <oid_t>(), output_stats);
 			output_stats_ = output_stats;
 		}
 		void CostAndStatsCalculator::Visit(const PhysicalOrderBy *) {
 			// TODO: Replace with more accurate cost
 			PL_ASSERT(child_stats_.size() == 1);
+			output_cost_ = getCostOfChildren(child_costs_);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
 				output_cost_ = 0;
 				return;
 			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats_ptr, output_properties_
-				->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(), output_stats);
+
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats_ptr, property_);
 			auto sort_prop = std::dynamic_pointer_cast<PropertySort>(
 				output_properties_->GetPropertyOfType(PropertyType::SORT));
 			std::vector<oid_t> columns;
 			std::vector<bool> orders;
 			for(size_t i = 0; i < sort_prop->GetSortColumnSize(); i++) {
-				oid_t column = (oid_t)(std::dynamic_pointer_cast<expression::TupleValueExpression>(sort_prop->GetSortColumn(i))->GetColumnId());
-				columns.push_back(column);
-				orders.push_back(sort_prop->GetSortAscending(i));
+        auto expr = sort_prop->GetSortColumn(i);
+        if (expr->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
+          oid_t column = (oid_t) (std::dynamic_pointer_cast<expression::TupleValueExpression>(
+            sort_prop->GetSortColumn(i))->GetColumnId());
+
+          // In case the first column is not a tuple expression
+          if (i != 0 && columns.empty()) {
+            columns.push_back(column);
+            orders.push_back(false);
+          }
+
+          columns.push_back(column);
+          orders.push_back(sort_prop->GetSortAscending(i));
+        }
 			}
-			output_cost_ = Cost::OrderByCost(table_stats_ptr, columns, orders, output_stats);
+			output_cost_ += Cost::OrderByCost(table_stats_ptr, columns, orders, output_stats);
       output_stats_ = output_stats;
 		}
+
 		void CostAndStatsCalculator::Visit(const PhysicalLimit *) {
 			// TODO: Replace with more accurate cost
 			// lack of limit number
+      output_cost_ = getCostOfChildren(child_costs_);
 			PL_ASSERT(child_stats_.size() == 1);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
 				output_cost_ = 0;
 				return;
 			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats_ptr, output_properties_
-				->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(), output_stats);
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats_ptr, property_);
+
 			size_t limit = (size_t) std::dynamic_pointer_cast<PropertyLimit>(
 				output_properties_->GetPropertyOfType(PropertyType::LIMIT))->GetLimit();
-			output_cost_ = Cost::LimitCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)),limit, output_stats);
+			output_cost_ += Cost::LimitCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)),limit, output_stats);
       output_stats_ = output_stats;
 		}
 		void CostAndStatsCalculator::Visit(const PhysicalFilter *){};
@@ -307,71 +321,79 @@ namespace peloton {
 		};
 		void CostAndStatsCalculator::Visit(const PhysicalHashGroupBy * op) {
 			// TODO: Replace with more accurate cost
+      output_cost_ = getCostOfChildren(child_costs_);
 			PL_ASSERT(child_stats_.size() == 1);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
 				output_cost_ = 0;
 				return;
 			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats_ptr, output_properties_
-				->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(), output_stats);
+
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats_ptr, property_);
+
 			std::vector<oid_t> column_ids;
 			for (auto column: op->columns) {
 				oid_t column_id = (oid_t)(std::dynamic_pointer_cast<expression::TupleValueExpression>(column)->GetColumnId());
 				column_ids.push_back(column_id);
 			}
-			output_cost_ = Cost::HashGroupByCost(table_stats_ptr, column_ids, output_stats);
+			output_cost_ += Cost::HashGroupByCost(table_stats_ptr, column_ids, output_stats);
       output_stats_ = output_stats;
 		};
 		void CostAndStatsCalculator::Visit(const PhysicalSortGroupBy * op) {
+
 			// TODO: Replace with more accurate cost
+      output_cost_ = getCostOfChildren(child_costs_);
 			PL_ASSERT(child_stats_.size() == 1);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
 				output_cost_ = 0;
 				return;
 			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats_ptr,
-												 output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(),
-												 output_stats);
+
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats_ptr, property_);
+
 			std::vector<oid_t> column_ids;
 			for (auto column: op->columns) {
 				oid_t column_id = (oid_t)(std::dynamic_pointer_cast<expression::TupleValueExpression>(column)->GetColumnId());
 				column_ids.push_back(column_id);
 			}
-			output_cost_ = Cost::SortGroupByCost(table_stats_ptr, column_ids, output_stats);
+			output_cost_ += Cost::SortGroupByCost(table_stats_ptr, column_ids, output_stats);
       output_stats_ = output_stats;
 
 		};
 		void CostAndStatsCalculator::Visit(const PhysicalAggregate *) {
+
 			// TODO: Replace with more accurate cost
+      output_cost_ = getCostOfChildren(child_costs_);
 			PL_ASSERT(child_stats_.size() == 1);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
 				output_cost_ = 0;
 				return;
 			}
-			output_cost_ = Cost::AggregateCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)));
+			output_cost_ += Cost::AggregateCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)));
 			output_stats_ = child_stats_.at(0);
 		};
 		void CostAndStatsCalculator::Visit(const PhysicalDistinct *) {
+
 			// TODO: Replace with more accurate cost
+      output_cost_ = getCostOfChildren(child_costs_);
 			PL_ASSERT(child_stats_.size() == 1);
 			auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
 			if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
 				output_cost_ = 0;
 				return;
 			}
-			auto output_stats = std::make_shared<TableStats>();
-			generateOutputStat(table_stats_ptr,
-												 output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>(), output_stats);
+			auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+			auto output_stats = generateOutputStat(table_stats_ptr, property_);
+
 			oid_t column_id = (oid_t)(std::dynamic_pointer_cast<expression::TupleValueExpression>(
 				output_properties_->GetPropertyOfType(PropertyType::DISTINCT)->As<PropertyDistinct>()
 					->GetDistinctColumn(0)))->GetColumnId();
 
-			output_cost_ = Cost::DistinctCost(table_stats_ptr, column_id, output_stats);
+			output_cost_ += Cost::DistinctCost(table_stats_ptr, column_id, output_stats);
 			output_stats_ = output_stats;
 		};
 
