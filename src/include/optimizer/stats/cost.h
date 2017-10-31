@@ -126,7 +126,7 @@ class Cost {
    * Note right only first column is taken into consideration.
    */
   static double OrderByCost(const std::shared_ptr<TableStats>& input_stats,
-                            const std::vector<oid_t>& columns,
+                            const std::vector<std::string>& columns,
                             const std::vector<bool>& orders,
                             std::shared_ptr<TableStats>& output_stats);
 
