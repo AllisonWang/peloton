@@ -34,7 +34,7 @@ namespace peloton {
         }
       } else {
         for (size_t i = 0; i < columns_prop->GetSize(); i++) {
-
+          LOG_DEBUG("column expr %s", columns_prop->GetColumn(i)->GetInfo().c_str());
           auto expr = columns_prop->GetColumn(i);
           if (expr->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
             auto column_name = (std::dynamic_pointer_cast<expression::TupleValueExpression>(expr))->GetColumnName();
@@ -240,6 +240,7 @@ namespace peloton {
     }
     void CostAndStatsCalculator::Visit(const PhysicalOrderBy *) {
       // TODO: Replace with more accurate cost
+      LOG_DEBUG("order by finish");
       PL_ASSERT(child_stats_.size() == 1);
       output_cost_ = getCostOfChildren(child_costs_);
       auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
@@ -247,7 +248,7 @@ namespace peloton {
         output_cost_ = 0;
         return;
       }
-
+      LOG_DEBUG("order by table stats rows %zu", table_stats_ptr->num_rows);
       auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
       auto output_stats = generateOutputStat(table_stats_ptr, property_);
       auto sort_prop = std::dynamic_pointer_cast<PropertySort>(
@@ -272,6 +273,7 @@ namespace peloton {
       }
       output_cost_ += Cost::OrderByCost(table_stats_ptr, columns, orders, output_stats);
       output_stats_ = output_stats;
+      LOG_DEBUG("order by output stats rows %zu cost %f", output_stats->num_rows, output_cost_);
     }
 
     void CostAndStatsCalculator::Visit(const PhysicalLimit *) {
@@ -325,7 +327,9 @@ namespace peloton {
     };
     void CostAndStatsCalculator::Visit(const PhysicalHashGroupBy * op) {
       // TODO: Replace with more accurate cost
+      LOG_DEBUG("hash group by start");
       output_cost_ = getCostOfChildren(child_costs_);
+      LOG_DEBUG("hash child cost %f", output_cost_);
       PL_ASSERT(child_stats_.size() == 1);
       auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
       if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
@@ -336,21 +340,36 @@ namespace peloton {
       auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
       auto output_stats = generateOutputStat(table_stats_ptr, property_);
 
-      std::vector<oid_t> column_ids;
+      std::vector<std::string> column_names;
+//      std::vector<oid_t> column_ids;
       for (auto column: op->columns) {
         if (column->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
-          oid_t column_id = (oid_t) (std::dynamic_pointer_cast<expression::TupleValueExpression>(
-            column)->GetColumnId());
-          column_ids.push_back(column_id);
+
+          std::string column_name = std::dynamic_pointer_cast<expression::TupleValueExpression>(
+            column)->GetColumnName();
+          auto column_id = std::dynamic_pointer_cast<expression::TupleValueExpression>(
+            column)->GetColumnId();
+
+          LOG_DEBUG("hash group by column, %s, %d", column_name.c_str(), column_id);
+          column_names.push_back(column_name);
+//          column_ids.push_back((oid_t) column_id);
+//          LOG_DEBUG("column id %zu", table_stats_ptr->)
+//          LOG_DEBUG("hash group by column, %s", column_name.c_str());
+//          column_names.push_back(column_name);
         }
       }
-      output_cost_ += Cost::HashGroupByCost(table_stats_ptr, column_ids, output_stats);
+      output_cost_ += Cost::HashGroupByCost(table_stats_ptr, column_names, output_stats);
       output_stats_ = output_stats;
+
+      LOG_DEBUG("hash group by cost %f", output_cost_);
+      LOG_DEBUG("hash group by output rows %zu column size %zu", output_stats->num_rows, output_stats->GetColumnCount());
     };
     void CostAndStatsCalculator::Visit(const PhysicalSortGroupBy * op) {
 
       // TODO: Replace with more accurate cost
+      LOG_DEBUG("sort group by start");
       output_cost_ = getCostOfChildren(child_costs_);
+      LOG_DEBUG("child cost %f", output_cost_);
       PL_ASSERT(child_stats_.size() == 1);
       auto table_stats_ptr = std::dynamic_pointer_cast<TableStats>(child_stats_.at(0));
       if (table_stats_ptr == nullptr || table_stats_ptr->GetColumnCount() == 0) {
@@ -361,20 +380,31 @@ namespace peloton {
       auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
       auto output_stats = generateOutputStat(table_stats_ptr, property_);
 
-      std::vector<oid_t> column_ids;
+      std::vector<std::string> column_names;
+//      std::vector<oid_t> column_ids;
       for (auto column: op->columns) {
         if (column->GetExpressionType() == ExpressionType::VALUE_TUPLE) {
-          oid_t column_id = (oid_t) (std::dynamic_pointer_cast<expression::TupleValueExpression>(
-            column)->GetColumnId());
-          column_ids.push_back(column_id);
+          std::string column_name = std::dynamic_pointer_cast<expression::TupleValueExpression>(
+            column)->GetColumnName();
+          auto column_id = std::dynamic_pointer_cast<expression::TupleValueExpression>(
+            column)->GetColumnId();
+
+          LOG_DEBUG("sort group by column, %s, %d", column_name.c_str(), column_id);
+          column_names.push_back(column_name);
+//          column_ids.push_back((oid_t) column_id);
         }
       }
-      output_cost_ += Cost::SortGroupByCost(table_stats_ptr, column_ids, output_stats);
+      output_cost_ += Cost::SortGroupByCost(table_stats_ptr, column_names, output_stats);
+
       output_stats_ = output_stats;
+      LOG_DEBUG("sort group by cost %f", output_cost_);
+
+      LOG_DEBUG("sort group by output rows %zu %zu", output_stats->num_rows, output_stats->GetColumnCount());
 
     };
     void CostAndStatsCalculator::Visit(const PhysicalAggregate *) {
 
+      LOG_DEBUG("aggregate");
       // TODO: Replace with more accurate cost
       output_cost_ = getCostOfChildren(child_costs_);
       PL_ASSERT(child_stats_.size() == 1);
@@ -383,8 +413,11 @@ namespace peloton {
         output_cost_ = 0;
         return;
       }
-      output_cost_ += Cost::AggregateCost(std::dynamic_pointer_cast<TableStats>(child_stats_.at(0)));
-      output_stats_ = child_stats_.at(0);
+      auto property_ = output_properties_->GetPropertyOfType(PropertyType::COLUMNS)->As<PropertyColumns>();
+      auto output_stats = generateOutputStat(table_stats_ptr, property_);
+      output_cost_ += Cost::AggregateCost(table_stats_ptr);
+      output_stats_ = output_stats;
+      LOG_DEBUG("aggregate cost %f column number %zu", output_cost_, output_stats->GetColumnCount());
     };
     void CostAndStatsCalculator::Visit(const PhysicalDistinct *) {
 
