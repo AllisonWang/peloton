@@ -176,7 +176,7 @@ struct Like : public TypeSystem::BinaryOperator {
                                          right.GetValue(), right.GetLength()});
 
     // return value
-    return Value{Integer::Instance(), raw_ret};
+    return Value{Boolean::Instance(), raw_ret};
   }
 };
 
