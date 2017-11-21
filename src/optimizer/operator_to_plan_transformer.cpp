@@ -241,6 +241,8 @@ void OperatorToPlanTransformer::Visit(const PhysicalOrderBy *) {
   vector<oid_t> sort_col_ids;
   vector<bool> sort_flags;
   for (size_t i = 0; i < sort_columns_size; i++) {
+    sort_prop->GetSortColumn(i)->DeduceExpressionName();
+    LOG_DEBUG("%s", sort_prop->GetSortColumn(i)->GetExpressionName());
     sort_col_ids.push_back(child_expr_map[sort_prop->GetSortColumn(i)]);
     // planner use desc flag
     sort_flags.push_back(!sort_prop->GetSortAscending(i));
