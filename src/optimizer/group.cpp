@@ -60,16 +60,17 @@ std::shared_ptr<GroupExpression> Group::GetBestExpression(
     PropertySet properties) {
   auto it = lowest_cost_expressions_.find(properties);
   if (it != lowest_cost_expressions_.end()) {
+    LOG_TRACE("Best property : %s", it->first.ToString().c_str());
     return std::get<1>(it->second);
   }
   LOG_TRACE("Didn't get best expression with required properties!");
   return nullptr;
 }
 
-const std::vector<std::shared_ptr<GroupExpression>> &Group::GetExpressions()
+const std::vector<std::shared_ptr<GroupExpression>>& Group::GetExpressions()
     const {
   return expressions_;
 }
 
-} // namespace optimizer
-} // namespace peloton
+}  // namespace optimizer
+}  // namespace peloton

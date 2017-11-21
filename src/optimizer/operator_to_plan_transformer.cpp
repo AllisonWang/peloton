@@ -168,6 +168,7 @@ void OperatorToPlanTransformer::Visit(const PhysicalProject *) {
       expression::ExpressionUtil::EvaluateExpression(children_expr_map_,
                                                      expr.get());
       planner::DerivedAttribute attribute{expr->Copy()};
+      attribute.attribute_info.name = expr->GetExpressionName();
       tl.emplace_back(curr_col_offset, attribute);
     }
     (*output_expr_map_)[expr] = curr_col_offset++;
@@ -278,7 +279,8 @@ void OperatorToPlanTransformer::Visit(const PhysicalAggregate *) {
 
   PL_ASSERT(col_prop != nullptr);
 
-  output_plan_ = GenerateAggregatePlan(col_prop, AggregateType::PLAIN, nullptr, nullptr);
+  output_plan_ =
+      GenerateAggregatePlan(col_prop, AggregateType::PLAIN, nullptr, nullptr);
 }
 
 void OperatorToPlanTransformer::Visit(const PhysicalDistinct *) {
@@ -324,7 +326,8 @@ void OperatorToPlanTransformer::Visit(const PhysicalDistinct *) {
 void OperatorToPlanTransformer::Visit(const PhysicalFilter *) {}
 
 void OperatorToPlanTransformer::Visit(const PhysicalInnerNLJoin *op) {
-  output_plan_ = GenerateJoinPlan((op->join_predicate).get(), JoinType::INNER, false);
+  output_plan_ =
+      GenerateJoinPlan((op->join_predicate).get(), JoinType::INNER, false);
 }
 
 void OperatorToPlanTransformer::Visit(const PhysicalLeftNLJoin *) {}
@@ -378,7 +381,7 @@ void OperatorToPlanTransformer::Visit(const PhysicalUpdate *op) {
   GenerateTableExprMap(table_expr_map, table_alias, op->target_table);
 
   // Evaluate update expression and add to target list
-  for (auto& update : *(op->updates)) {
+  for (auto &update : *(op->updates)) {
     auto column = update->column;
     auto col_id = schema->GetColumnID(column);
     if (update_col_ids.find(col_id) != update_col_ids.end())
@@ -522,8 +525,11 @@ OperatorToPlanTransformer::GenerateAggregatePlan(
 
   // Generate group by ids
   vector<oid_t> col_ids;
-  if (group_by_exprs != nullptr)
-    for (auto col : *group_by_exprs) col_ids.push_back(child_expr_map[col]);
+  if (group_by_exprs != nullptr) {
+    for (auto col : *group_by_exprs) {
+      col_ids.push_back(child_expr_map[col]);
+    }
+  }
 
   // Handle having clause
   expression::AbstractExpression *having_predicate = nullptr;
@@ -573,9 +579,9 @@ unique_ptr<planner::AbstractPlan> OperatorToPlanTransformer::GenerateJoinPlan(
                           l_output_exprs.end());
       output_exprs.insert(output_exprs.end(), r_output_exprs.begin(),
                           r_output_exprs.end());
-    }
-    else
+    } else {
       output_exprs.emplace_back(expr);
+    }
   }
 
   // expressions to evaluate
@@ -585,11 +591,12 @@ unique_ptr<planner::AbstractPlan> OperatorToPlanTransformer::GenerateJoinPlan(
   // schema of the projections output
   vector<catalog::Column> columns;
   size_t output_size = output_exprs.size();
-  for (size_t output_offset = 0; output_offset<output_size; output_offset++) {
+  for (size_t output_offset = 0; output_offset < output_size; output_offset++) {
     auto expr = output_exprs[output_offset];
     auto expr_type = expr->GetExpressionType();
 
-    expression::ExpressionUtil::EvaluateExpression(children_expr_map_, expr.get());
+    expression::ExpressionUtil::EvaluateExpression(children_expr_map_,
+                                                   expr.get());
     if (expr_type == ExpressionType::VALUE_TUPLE) {
       // For TupleValueExpr, we can just do a direct mapping.
       if (l_child_map.count(expr))
@@ -663,10 +670,9 @@ unique_ptr<planner::AbstractPlan> OperatorToPlanTransformer::GenerateJoinPlan(
     // TODO: Right now we always enable bloom filter. Later when we have
     // cost model in place, we need to decide whether to enable bloom filter
     // based on the size of the hash table and its selectivity
-    join_plan = unique_ptr<planner::AbstractPlan>(
-        new planner::HashJoinPlan(join_type, move(predicate), move(proj_info),
-                                  schema_ptr, left_hash_keys, right_hash_keys,
-                                  true));
+    join_plan = unique_ptr<planner::AbstractPlan>(new planner::HashJoinPlan(
+        join_type, move(predicate), move(proj_info), schema_ptr, left_hash_keys,
+        right_hash_keys, true));
 
     join_plan->AddChild(move(children_plans_[0]));
     join_plan->AddChild(move(hash_plan));
