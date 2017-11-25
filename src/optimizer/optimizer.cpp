@@ -457,7 +457,7 @@ shared_ptr<GroupExpression> Optimizer::EnforceProperty(
 
   // If requirements is fulfilled
   // set cost and stats for it
-  if (output_properties >= requirements) {
+  if (!(output_properties >= requirements)) {
     DeriveCostAndStats(enforced_gexpr, requirements, child_input_properties,
                        child_stats, child_costs);
   }

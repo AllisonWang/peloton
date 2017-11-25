@@ -2,7 +2,7 @@
 //
 //                         Peloton
 //
-// cost_test.cpp
+// cost_and_stats_calculator_test.cpp
 //
 // Identification: test/optimizer/cost_and_stats_calculator_test.cpp
 //
@@ -118,8 +118,7 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionSeqScanTest) {
   PropertySet *set = new PropertySet;
   set->AddProperty(std::make_shared<PropertyColumns>(cols));
 
-  auto expr1 = expression::ExpressionUtil::TupleValueFactory(
-      type::TypeId::DECIMAL, 0, 2);
+  auto expr1 = new expression::TupleValueExpression("salary", "test");
   auto expr2 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetDecimalValue(1.0));
   auto predicate = expression::ExpressionUtil::ComparisonFactory(
@@ -172,8 +171,7 @@ TEST_F(CostAndStatsCalculatorTests, SingleConditionIndexScanTest) {
   set->AddProperty(std::make_shared<PropertyColumns>(cols));
 
   // test.salary = 1.0
-  auto expr1 = new expression::TupleValueExpression("id");
-  expr1->SetTupleValueExpressionParams(type::TypeId::INTEGER, 0, 0);
+  auto expr1 = new expression::TupleValueExpression("id", "test");
   auto expr2 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetIntegerValue(30));
   auto predicate = expression::ExpressionUtil::ComparisonFactory(
@@ -227,16 +225,14 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionSeqScanTest) {
   set->AddProperty(std::make_shared<PropertyColumns>(cols));
 
   // test.id > 30
-  auto expr1 = expression::ExpressionUtil::TupleValueFactory(
-      type::TypeId::INTEGER, 0, 0);
+  auto expr1 = new expression::TupleValueExpression("id", "test");
   auto expr2 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetIntegerValue(30));
   auto expr3 = expression::ExpressionUtil::ComparisonFactory(
       ExpressionType::COMPARE_GREATERTHAN, expr1, expr2);
 
   // test.salary = 1.0
-  auto expr4 = expression::ExpressionUtil::TupleValueFactory(
-      type::TypeId::DECIMAL, 0, 2);
+  auto expr4 = new expression::TupleValueExpression("salary", "test");
   auto expr5 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetDecimalValue(1.0));
   auto expr6 = expression::ExpressionUtil::ComparisonFactory(
@@ -293,24 +289,21 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionIndexScanTest) {
   set->AddProperty(std::make_shared<PropertyColumns>(cols));
 
   // test.id > 30
-  auto expr1 = new expression::TupleValueExpression("id");
-  expr1->SetTupleValueExpressionParams(type::TypeId::INTEGER, 0, 0);
+  auto expr1 = new expression::TupleValueExpression("id", "test");
   auto expr2 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetIntegerValue(30));
   auto expr3 = expression::ExpressionUtil::ComparisonFactory(
       ExpressionType::COMPARE_GREATERTHAN, expr1, expr2);
 
   // test.id <= 90
-  auto expr4 = new expression::TupleValueExpression("id");
-  expr4->SetTupleValueExpressionParams(type::TypeId::INTEGER, 0, 2);
+  auto expr4 = new expression::TupleValueExpression("id", "test");
   auto expr5 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetIntegerValue(90));
   auto expr6 = expression::ExpressionUtil::ComparisonFactory(
       ExpressionType::COMPARE_LESSTHANOREQUALTO, expr4, expr5);
 
   // test.salary = 1.0
-  auto expr7 = expression::ExpressionUtil::TupleValueFactory(
-      type::TypeId::DECIMAL, 0, 2);
+  auto expr7 = new expression::TupleValueExpression("salary", "test");
   auto expr8 = expression::ExpressionUtil::ConstantValueFactory(
       type::ValueFactory::GetDecimalValue(1.0));
   auto expr9 = expression::ExpressionUtil::ComparisonFactory(
@@ -338,5 +331,5 @@ TEST_F(CostAndStatsCalculatorTests, ConjunctionConditionIndexScanTest) {
   catalog::Catalog::GetInstance()->DropDatabaseWithName(DEFAULT_DB_NAME, txn);
   txn_manager.CommitTransaction(txn);
 }
-}
-}
+}  // namespace test
+}  // namespace peloton
